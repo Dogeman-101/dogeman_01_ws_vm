@@ -14,8 +14,8 @@ source ~/dogeman_01_ws/devel/setup.bash   # 首次构建后执行
 ## 构建与运行
 
 ```bash
-# 构建
-cd ~/dogeman_01_ws && catkin_make
+# 构建（使用 catkin_tools，不是 catkin_make）
+cd ~/dogeman_01_ws && catkin build
 
 # 【主流程】步骤一：启动 6 机器人仿真（终端 A）
 roslaunch orchard_navigation multi_robot_navigation.launch
@@ -93,6 +93,9 @@ src/
 │   └── scripts/
 │       ├── task_assigner.py                 # 静态派发版（保留作对比）
 │       └── task_assigner_hungarian.py       # 匈牙利算法版
+├── mocap_localization/               # 动捕定位（替代 AMCL）
+│   ├── scripts/mocap_to_tf.py               # 订阅 PoseStamped，广播 map→odom TF
+│   └── launch/mocap_to_tf.launch
 └── orchard_orchestrator/            # 4 阶段采摘-运输编排层（依赖 move_base）
     ├── config/orchard_layout.yaml           # depot + 6 任务 + picker/transporter 分组 + 时间参数
     ├── launch/orchestrator.launch

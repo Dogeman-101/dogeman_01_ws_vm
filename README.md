@@ -63,6 +63,8 @@ y=0  └────────────────────────
 | 编排启动文件 | `orchard_orchestrator/launch/orchestrator.launch` | 加载上面的 yaml 并启动编排节点 |
 | 4 阶段编排器 | `orchard_orchestrator/scripts/orchestrator.py` | 按 A1→B1→A2→B2 串行调度，每阶段单独跑一次匈牙利分配 |
 | 匈牙利工具库 | `orchard_orchestrator/scripts/hungarian_utils.py` | 从匈牙利版任务分配器抽出的纯函数，供 orchestrator 复用；附带离线自检 |
+| 动捕定位节点 | `mocap_localization/scripts/mocap_to_tf.py` | 订阅动捕 PoseStamped，计算并广播 map→odom TF，替代 AMCL |
+| 动捕定位启动文件 | `mocap_localization/launch/mocap_to_tf.launch` | 启动 mocap_to_tf 节点，可配置动捕话题和机器人命名空间 |
 
 ### 调用的第三方工具包
 
@@ -76,6 +78,22 @@ y=0  └────────────────────────
 | **map_server** | 把地图文件加载进来，让所有机器人都能查询 |
 | **robot_state_publisher** | 根据 URDF 模型，实时广播机器人各部件的空间位置（供 RViz 显示） |
 | **turtlebot3_navigation** | 借用了其中 3 个 move_base 框架参数文件；其余导航参数均被本项目自定义文件覆盖 |
+
+---
+
+### `mocap_localization` 包——动捕定位（替代 AMCL）
+
+#### `scripts/mocap_to_tf.py` — 动捕→TF 转换节点
+
+订阅动作捕捉系统发布的 `geometry_msgs/PoseStamped`（机器人在 map 坐标系中的真值位姿），计算并广播 `map → robotN/odom` TF 变换，从而替代 AMCL 的定位角色。
+
+核心数学：`T_map_odom = T_map_base × T_odom_base⁻¹`。其中 `T_odom_base` 由 Gazebo planar_move 插件已有的 TF 广播获取，`T_map_base` 来自动捕输入。节点以 50Hz 定时广播，即使动捕数据短暂中断也保持 TF 连续。
+
+设计上同时支持仿真（接 Gazebo p3d 插件的假动捕）和真机（接 mocap_nokov 的真动捕），接口一致——都是 PoseStamped 话题。
+
+#### `launch/mocap_to_tf.launch` — 动捕定位启动文件
+
+启动单台机器人的 `mocap_to_tf` 节点，通过 arg 配置机器人命名空间和动捕话题。
 
 ---
 
@@ -310,7 +328,7 @@ sudo apt install -y python3-scipy python3-numpy
 ```bash
 cd ~/dogeman_01_ws
 source /opt/ros/noetic/setup.bash
-catkin_make
+catkin build
 source devel/setup.bash
 ```
 
