@@ -1,0 +1,144 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="orchard">
+
+    <!-- Physics -->
+    <physics type="ode">
+      <real_time_update_rate>1000.0</real_time_update_rate>
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+
+    <!-- Sun -->
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground plane -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <!-- ===== Outer walls ===== -->
+
+    <!-- South wall: y=0, full width 12m -->
+    <model name="wall_south">
+      <static>true</static>
+      <pose>6.0 0.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>12.0 0.15 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>12.0 0.15 0.5</size></box></geometry>
+          <material><ambient>0.6 0.4 0.2 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- North wall: y=8, full width 12m -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>6.0 8.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>12.0 0.15 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>12.0 0.15 0.5</size></box></geometry>
+          <material><ambient>0.6 0.4 0.2 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- West wall: x=0, full height 8m (size: width=0.15 along x, length=8 along y) -->
+    <model name="wall_west">
+      <static>true</static>
+      <pose>0.0 4.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 8.0 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 8.0 0.5</size></box></geometry>
+          <material><ambient>0.6 0.4 0.2 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- East wall: x=12, full height 8m -->
+    <model name="wall_east">
+      <static>true</static>
+      <pose>12.0 4.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 8.0 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 8.0 0.5</size></box></geometry>
+          <material><ambient>0.6 0.4 0.2 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===== Row walls (orchard rows) ===== -->
+    <!-- Length 9m along x, centered at x=6.0, spanning x=1.5 to x=10.5 -->
+    <!-- Side corridors: x=0~1.5 (west) and x=10.5~12 (east) -->
+
+    <!-- Row wall 1: y=6 -->
+    <model name="row_wall_1">
+      <static>true</static>
+      <pose>6.0 6.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>9.0 0.15 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>9.0 0.15 0.5</size></box></geometry>
+          <material><ambient>0.2 0.5 0.2 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Row wall 2: y=4 -->
+    <model name="row_wall_2">
+      <static>true</static>
+      <pose>6.0 4.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>9.0 0.15 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>9.0 0.15 0.5</size></box></geometry>
+          <material><ambient>0.2 0.5 0.2 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Row wall 3: y=2 -->
+    <model name="row_wall_3">
+      <static>true</static>
+      <pose>6.0 2.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>9.0 0.15 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>9.0 0.15 0.5</size></box></geometry>
+          <material><ambient>0.2 0.5 0.2 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

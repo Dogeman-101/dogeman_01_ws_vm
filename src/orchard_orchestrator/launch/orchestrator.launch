@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!--
+  orchestrator.launch
+  启动多机器人采摘-运输编排器。
+  先运行 orchard_navigation/multi_robot_navigation.launch（6 台机器人 + nav stack）
+  再运行本 launch 触发任务。
+-->
+<launch>
+  <node pkg="orchard_orchestrator" type="orchestrator.py"
+        name="orchard_orchestrator" output="screen">
+    <rosparam command="load"
+              file="$(find orchard_orchestrator)/config/orchard_layout.yaml"/>
+  </node>
+</launch>

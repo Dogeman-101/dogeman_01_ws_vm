@@ -1,0 +1,48 @@
+# 匈牙利算法版任务配置
+# 与 orchard_tasks.yaml 并存，互不干扰。
+#
+# 结构差异：
+#   robots 列表中每台机器人用 start 字段（出发坐标），而非 goal。
+#   顶层新增 tasks 列表，存放所有目标点。
+#   task_assigner_hungarian.py 会自动计算哪台机器人去哪个目标，无需手动指定。
+#
+# 任务点顺序说明（故意打乱）：
+#   tasks[0] = (9.0,  1.0)  ← 原 robot4 的目标，距 robot1 最远
+#   tasks[1] = (11.25,7.0)  ← 原 robot6 的目标，距 robot2 最远
+#   tasks[2] = (9.0,  7.0)  ← 原 robot1 的目标
+#   tasks[3] = (0.75, 1.0)  ← 原 robot5 的目标
+#   tasks[4] = (9.0,  5.0)  ← 原 robot2 的目标
+#   tasks[5] = (9.0,  3.0)  ← 原 robot3 的目标
+#
+# 预期匈牙利分配结果（可用于验证算法正确性）：
+#   robot1 → tasks[2] (9.0, 7.0)   代价 5.50 m
+#   robot2 → tasks[4] (9.0, 5.0)   代价 5.50 m
+#   robot3 → tasks[5] (9.0, 3.0)   代价 5.50 m
+#   robot4 → tasks[0] (9.0, 1.0)   代价 5.50 m
+#   robot5 → tasks[3] (0.75,1.0)   代价 6.00 m
+#   robot6 → tasks[1] (11.25,7.0)  代价 6.00 m
+#   总代价 = 34.00 m（顺序分配约 37.2 m，算法节省约 3.2 m）
+
+goal_timeout: 180.0   # 单机器人目标超时（秒）
+
+robots:
+  - namespace: "robot1"
+    start: {x: 3.5,   y: 7.0,  yaw: 0.0}   # Corridor 1 西端
+  - namespace: "robot2"
+    start: {x: 3.5,   y: 5.0,  yaw: 0.0}   # Corridor 2 西端
+  - namespace: "robot3"
+    start: {x: 3.5,   y: 3.0,  yaw: 0.0}   # Corridor 3 西端
+  - namespace: "robot4"
+    start: {x: 3.5,   y: 1.0,  yaw: 0.0}   # Corridor 4 西端
+  - namespace: "robot5"
+    start: {x: 0.75,  y: 7.0,  yaw: 0.0}   # 西侧通道北端
+  - namespace: "robot6"
+    start: {x: 11.25, y: 1.0,  yaw: 0.0}   # 东侧通道南端
+
+tasks:
+  - {x: 9.0,   y: 1.0,  yaw: 0.0}   # task[0]：Corridor 4 东端（原 robot4 目标）
+  - {x: 11.25, y: 7.0,  yaw: 0.0}   # task[1]：东侧通道北端（原 robot6 目标）
+  - {x: 9.0,   y: 7.0,  yaw: 0.0}   # task[2]：Corridor 1 东端（原 robot1 目标）
+  - {x: 0.75,  y: 1.0,  yaw: 0.0}   # task[3]：西侧通道南端（原 robot5 目标）
+  - {x: 9.0,   y: 5.0,  yaw: 0.0}   # task[4]：Corridor 2 东端（原 robot2 目标）
+  - {x: 9.0,   y: 3.0,  yaw: 0.0}   # task[5]：Corridor 3 东端（原 robot3 目标）

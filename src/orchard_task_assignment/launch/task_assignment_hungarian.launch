@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 匈牙利算法版任务分配器
+       先在终端 A 运行 multi_robot_navigation.launch，
+       仿真稳定后再在终端 B 运行本 launch。 -->
+  <node pkg="orchard_task_assignment" type="task_assigner_hungarian.py"
+        name="task_assigner_hungarian" output="screen">
+    <rosparam file="$(find orchard_task_assignment)/config/orchard_tasks_hungarian.yaml"
+              command="load"/>
+  </node>
+</launch>

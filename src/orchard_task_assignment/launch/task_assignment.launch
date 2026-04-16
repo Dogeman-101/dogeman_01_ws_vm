@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<launch>
+  <node pkg="orchard_task_assignment" type="task_assigner.py"
+        name="task_assigner" output="screen">
+    <rosparam file="$(find orchard_task_assignment)/config/orchard_tasks.yaml"
+              command="load"/>
+  </node>
+</launch>

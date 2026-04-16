@@ -1,0 +1,88 @@
+# orchard_layout.yaml
+# 果园多机器人采摘-运输任务配置
+# 对应 orchard_orchestrator_spec_patch.md 第 4 节（A2 反向 + yaw=π）
+
+# ===== 卸货点（depot） =====
+# depot 是逻辑上的 “仓库位置”，用于分配阶段做代价矩阵 fallback。
+# 实际卸货时每台 transporter 用各自独立的 depot_slot，避免三车抢同一格
+# → 先到者把后到者挡死（B 阶段返 depot 时 state=4 的根因）。
+# slot 坐标与 multi_robot_navigation.launch 中对应 ns 的 spawn 点一致。
+depot:
+  x: 0.75
+  y: 4.0
+  yaw: 0.0
+
+depot_slots:
+  robot4: {x: 0.75, y: 4.0, yaw: 0.0}
+  robot5: {x: 0.75, y: 2.0, yaw: 0.0}
+  robot6: {x: 0.75, y: 6.0, yaw: 0.0}
+
+# ===== 6 个采摘任务 =====
+# 第 1 轮（round=1, A1）：西端 entry → 东端 exit，yaw=0（朝东）
+# 第 2 轮（round=2, A2）：东端 entry → 西端 exit，yaw=π（朝西）
+# 每个任务的 exit 即为 picker 完成后"果筐"落地坐标，供 transporter 取筐
+# stash 为 picker 放下果筐后的让位点：腾出 pickup 坐标，避免 move_base 把
+# 停在目标上的 picker 当作障碍而判 pickup 不可达（B 阶段全员 state=4 的根因）
+picking_tasks:
+  # ----- A1：西→东。让位点沿东侧通道 x=11.5 纵向 1m 偏移到"墙 y 值"位置 -----
+  # 墙仅覆盖 x∈[1.5,10.5]，故 (11.5, 2/4/6) 是东侧通道内的空闲 cell
+  - id: "row1_north"
+    round: 1
+    entry: {x: 0.5,  y: 3.0, yaw: 0.0}
+    exit:  {x: 11.5, y: 3.0, yaw: 0.0}
+    stash: {x: 11.5, y: 2.0, yaw: 0.0}
+  - id: "row2_north"
+    round: 1
+    entry: {x: 0.5,  y: 5.0, yaw: 0.0}
+    exit:  {x: 11.5, y: 5.0, yaw: 0.0}
+    stash: {x: 11.5, y: 4.0, yaw: 0.0}
+  - id: "row3_north"
+    round: 1
+    entry: {x: 0.5,  y: 7.0, yaw: 0.0}
+    exit:  {x: 11.5, y: 7.0, yaw: 0.0}
+    stash: {x: 11.5, y: 6.0, yaw: 0.0}
+  # ----- A2：东→西（yaw=π 朝西）。让位点沿走廊中线退 1.5m，不挡西侧通道 pickup -----
+  - id: "row1_south"
+    round: 2
+    entry: {x: 11.5, y: 1.0, yaw: 3.14159}
+    exit:  {x: 0.5,  y: 1.0, yaw: 3.14159}
+    stash: {x: 2.0,  y: 1.0, yaw: 3.14159}
+  - id: "row2_south"
+    round: 2
+    entry: {x: 11.5, y: 3.0, yaw: 3.14159}
+    exit:  {x: 0.5,  y: 3.0, yaw: 3.14159}
+    stash: {x: 2.0,  y: 3.0, yaw: 3.14159}
+  - id: "row3_south"
+    round: 2
+    entry: {x: 11.5, y: 5.0, yaw: 3.14159}
+    exit:  {x: 0.5,  y: 5.0, yaw: 3.14159}
+    stash: {x: 2.0,  y: 5.0, yaw: 3.14159}
+
+# ===== 机器人编组 =====
+# 物理 namespace 沿用 robot1~6。picker / transporter 身份由此处分组决定，
+# 与 multi_robot_navigation.launch 中 spawn 位置对应：
+#   robot1~3 picker, spawn 在 (0.5, 3/5/7)
+#   robot4~6 transporter, spawn 在 (0.75, 4/2/6)
+picker_robots:
+  - namespace: "robot1"
+  - namespace: "robot2"
+  - namespace: "robot3"
+
+transporter_robots:
+  - namespace: "robot4"
+  - namespace: "robot5"
+  - namespace: "robot6"
+
+# ===== 时间参数（秒） =====
+timing:
+  pick_dwell_seconds: 5.0      # picker 到达 exit 后模拟采摘的停留时间
+  load_dwell_seconds: 3.0      # transporter 在果筐处装载停留
+  unload_dwell_seconds: 3.0    # transporter 回 depot 卸货停留
+  goal_timeout_seconds: 180.0  # 单次 move_base goal 的等待上限
+
+# ===== 调度模式 =====
+mode:
+  pipeline: false   # 本次只跑串行 A1 → B1 → A2 → B2（true 分支未实现）
+
+# move_base action server 初始连接等待上限
+move_base_wait_timeout: 30.0

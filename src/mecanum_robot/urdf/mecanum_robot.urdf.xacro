@@ -1,0 +1,194 @@
+<?xml version="1.0"?>
+<robot name="mecanum_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- robot_ns：多机器人时设为 "robot1"..."robot6"，单机器人时留空 -->
+  <xacro:arg name="robot_ns" default=""/>
+
+  <!-- ===== 常量定义 ===== -->
+  <xacro:property name="chassis_l"  value="0.35"/>  <!-- 车身长度（x 轴）-->
+  <xacro:property name="chassis_w"  value="0.25"/>  <!-- 车身宽度（y 轴）-->
+  <xacro:property name="chassis_h"  value="0.08"/>  <!-- 车身高度（z 轴）-->
+  <xacro:property name="wheel_r"    value="0.04"/>  <!-- 轮子半径 -->
+  <xacro:property name="wheel_w"    value="0.04"/>  <!-- 轮子宽度（圆柱高度）-->
+  <!-- 轮轴相对于 base_link 的偏移量（base_link 距地面高度为 wheel_r）-->
+  <xacro:property name="axle_x"     value="0.115"/> <!-- 前后轴距的一半 -->
+  <xacro:property name="axle_y"     value="0.145"/> <!-- 左右轮距的一半 -->
+  <xacro:property name="laser_h"    value="0.18"/>  <!-- 激光雷达距地面高度 -->
+
+  <!-- ===== 材质定义 ===== -->
+  <material name="dark_grey">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+  <material name="orange">
+    <color rgba="1.0 0.5 0.0 1.0"/>
+  </material>
+  <material name="black">
+    <color rgba="0.0 0.0 0.0 1.0"/>
+  </material>
+  <material name="white">
+    <color rgba="1.0 1.0 1.0 1.0"/>
+  </material>
+
+  <!-- ===== 车轮宏定义 ===== -->
+  <!-- origin_x/y：相对于 base_link 的安装位置 -->
+  <xacro:macro name="mecanum_wheel" params="name origin_x origin_y">
+    <link name="wheel_${name}_link">
+      <visual>
+        <geometry>
+          <cylinder length="${wheel_w}" radius="${wheel_r}"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder length="${wheel_w}" radius="${wheel_r}"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+      </collision>
+      <inertial>
+        <mass value="0.15"/>
+        <!-- 绕旋转轴（旋转 pi/2 后为 y 轴）的惯量：Ixx=Izz=m(3r²+h²)/12，Iyy=mr²/2 -->
+        <inertia ixx="0.000185" ixy="0" ixz="0"
+                 iyy="0.000120" iyz="0"
+                 izz="0.000185"/>
+      </inertial>
+    </link>
+
+    <joint name="wheel_${name}_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="wheel_${name}_link"/>
+      <origin xyz="${origin_x} ${origin_y} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="0.01" friction="0.1"/>
+    </joint>
+
+    <!-- 抑制 Gazebo 的固定关节警告 -->
+    <gazebo reference="wheel_${name}_link">
+      <mu1>0.8</mu1>
+      <mu2>0.8</mu2>
+      <material>Gazebo/Black</material>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- ===== base_footprint（地面级坐标系，供导航使用）===== -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 ${wheel_r}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== base_link（底盘）===== -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="${chassis_l} ${chassis_w} ${chassis_h}"/>
+      </geometry>
+      <origin xyz="0 0 ${chassis_h/2}" rpy="0 0 0"/>
+      <material name="dark_grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${chassis_l} ${chassis_w} ${chassis_h}"/>
+      </geometry>
+      <origin xyz="0 0 ${chassis_h/2}" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="3.0"/>
+      <inertia ixx="0.025" ixy="0" ixz="0"
+               iyy="0.041" iyz="0"
+               izz="0.058"/>
+    </inertial>
+  </link>
+
+  <gazebo reference="base_link">
+    <material>Gazebo/DarkGrey</material>
+  </gazebo>
+
+  <!-- ===== 四个麦克纳姆轮 ===== -->
+  <xacro:mecanum_wheel name="fl" origin_x=" ${axle_x}" origin_y=" ${axle_y}"/>
+  <xacro:mecanum_wheel name="fr" origin_x=" ${axle_x}" origin_y="-${axle_y}"/>
+  <xacro:mecanum_wheel name="rl" origin_x="-${axle_x}" origin_y=" ${axle_y}"/>
+  <xacro:mecanum_wheel name="rr" origin_x="-${axle_x}" origin_y="-${axle_y}"/>
+
+  <!-- ===== 激光雷达连杆 ===== -->
+  <link name="laser_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.02" radius="0.025"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <material name="orange"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.02" radius="0.025"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.05"/>
+      <inertia ixx="0.000005" ixy="0" ixz="0"
+               iyy="0.000005" iyz="0"
+               izz="0.000005"/>
+    </inertial>
+  </link>
+
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="laser_link"/>
+    <!-- 激光雷达安装在底盘顶部中心 -->
+    <origin xyz="0 0 ${chassis_h + 0.02 + 0.01}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== Gazebo 传感器与插件 ===== -->
+
+  <!-- 激光雷达：360° 扫描，参数与 TurtleBot3 Burger 一致，AMCL 可直接使用 -->
+  <gazebo reference="laser_link">
+    <material>Gazebo/Orange</material>
+    <sensor type="ray" name="lidar">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>false</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159265</min_angle>
+            <max_angle>3.14159265</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.12</min>
+          <max>3.5</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="gazebo_ros_lidar" filename="libgazebo_ros_laser.so">
+        <robotNamespace>$(arg robot_ns)</robotNamespace>
+        <topicName>scan</topicName>
+        <frameName>$(arg robot_ns)/laser_link</frameName>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- 全向平移插件：全向驱动（linear.x/y + angular.z → 里程计 + TF）-->
+  <gazebo>
+    <plugin name="mecanum_drive_controller" filename="libgazebo_ros_planar_move.so">
+      <robotNamespace>$(arg robot_ns)</robotNamespace>
+      <commandTopic>cmd_vel</commandTopic>
+      <odometryTopic>odom</odometryTopic>
+      <odometryFrame>$(arg robot_ns)/odom</odometryFrame>
+      <odometryRate>20.0</odometryRate>
+      <robotBaseFrame>$(arg robot_ns)/base_footprint</robotBaseFrame>
+    </plugin>
+  </gazebo>
+
+</robot>

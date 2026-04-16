@@ -1,0 +1,25 @@
+# 六机器人任务配置
+# 每台机器人各前往一个目标点，同时出发。
+# namespace 对应 multi_robot_navigation.launch 中的 group ns。
+# 修改后无需重新编译，重新运行 task_assignment.launch 即可。
+#
+# 出发位置（在 multi_robot_navigation.launch 中定义）：
+#   robot1  (3.5,  7.0)   robot2  (3.5,  5.0)
+#   robot3  (3.5,  3.0)   robot4  (3.5,  1.0)
+#   robot5  (0.75, 7.0)   robot6  (11.25,1.0)
+
+goal_timeout: 180.0   # 单机器人目标超时（秒）
+
+robots:
+  - namespace: "robot1"             # Corridor 1 → 东端
+    goal: {x: 9.0,   y: 7.0, yaw: 0.0}
+  - namespace: "robot2"             # Corridor 2 → 东端
+    goal: {x: 9.0,   y: 5.0, yaw: 0.0}
+  - namespace: "robot3"             # Corridor 3 → 东端
+    goal: {x: 9.0,   y: 3.0, yaw: 0.0}
+  - namespace: "robot4"             # Corridor 4 → 东端
+    goal: {x: 9.0,   y: 1.0, yaw: 0.0}
+  - namespace: "robot5"             # 西侧通道 → 南端
+    goal: {x: 0.75,  y: 1.0, yaw: 0.0}
+  - namespace: "robot6"             # 东侧通道 → 北端
+    goal: {x: 11.25, y: 7.0, yaw: 0.0}

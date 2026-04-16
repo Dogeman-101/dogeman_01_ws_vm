@@ -1,0 +1,28 @@
+# 麦克纳姆轮机器人的 AMCL 定位参数（全向移动，omni 里程计模型）
+# 坐标系 ID（base_frame_id、odom_frame_id、global_frame_id）及初始位姿
+# 由 launch 文件按机器人编号注入，以支持多机器人命名空间隔离
+
+min_particles: 500
+max_particles: 3000
+kld_err: 0.05
+update_min_d: 0.2
+update_min_a: 0.2
+resample_interval: 1
+transform_tolerance: 0.5
+recovery_alpha_slow: 0.000
+recovery_alpha_fast: 0.100
+
+laser_max_range: 3.5
+laser_max_beams: 180
+laser_z_hit: 0.5
+laser_z_short: 0.05
+laser_z_max: 0.05
+laser_z_rand: 0.5
+
+# 麦轮全向里程计模型（omni 全向，而非 diff 差速）
+odom_model_type: omni
+odom_alpha1: 0.1
+odom_alpha2: 0.1
+odom_alpha3: 0.1
+odom_alpha4: 0.1
+odom_alpha5: 0.1

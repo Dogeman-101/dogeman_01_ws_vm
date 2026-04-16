@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>orchard_task_assignment</name>
+  <version>0.1.0</version>
+  <description>
+    Single-robot task assignment for the orchard navigation system.
+    Loads a YAML waypoint list and sends goals sequentially to move_base.
+  </description>
+
+  <maintainer email="todo@todo.com">dogeman</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>actionlib</exec_depend>
+  <exec_depend>move_base_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>tf</exec_depend>
+</package>

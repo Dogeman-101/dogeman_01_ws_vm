@@ -1,0 +1,18 @@
+obstacle_range: 2.5
+raytrace_range: 3.0
+
+# 麦克纳姆轮机器人外形（含轮子约 0.35 x 0.33 m）
+# 使用圆形近似；内切圆半径 ≈ 0.165m，外接圆半径 ≈ 0.24m
+robot_radius: 0.20
+
+# 比 burger 默认值（1.0）更小的膨胀半径，确保机器人能通过 1.35m 宽的侧边通道
+# 通道余量：1.35 - 2×(0.20+0.25) = 0.45m
+inflation_radius: 0.25
+
+observation_sources: scan
+
+scan:
+  data_type: LaserScan
+  topic: scan
+  marking: true
+  clearing: true

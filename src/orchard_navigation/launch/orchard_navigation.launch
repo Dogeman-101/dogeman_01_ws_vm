@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- ===== 参数定义 ===== -->
+  <arg name="x_pos"            default="3.5"/>
+  <arg name="y_pos"            default="7.0"/>
+  <arg name="yaw"              default="0.0"/>
+  <arg name="open_rviz"        default="false"/>
+
+  <!-- ===== 1. Gazebo 仿真 ===== -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name"   value="$(find orchard_navigation)/worlds/orchard.world"/>
+    <arg name="paused"       value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui"          value="true"/>
+    <arg name="headless"     value="false"/>
+    <arg name="debug"        value="false"/>
+  </include>
+
+  <!-- ===== 2. 机器人描述 + 模型生成 ===== -->
+  <param name="robot_description"
+         command="$(find xacro)/xacro --inorder
+                  $(find mecanum_robot)/urdf/mecanum_robot.urdf.xacro"/>
+
+  <node pkg="gazebo_ros" type="spawn_model" name="spawn_urdf" output="screen"
+        args="-urdf -model mecanum_robot
+              -x $(arg x_pos) -y $(arg y_pos) -z 0.0
+              -Y $(arg yaw)
+              -param robot_description"/>
+
+  <!-- 发布车轮和传感器的 TF -->
+  <node pkg="robot_state_publisher" type="robot_state_publisher"
+        name="robot_state_publisher">
+    <param name="publish_frequency" type="double" value="50.0"/>
+  </node>
+
+  <!-- ===== 3. 地图服务 ===== -->
+  <node pkg="map_server" type="map_server" name="map_server"
+        args="$(find orchard_navigation)/maps/orchard_map.yaml"/>
+
+  <!-- ===== 4. AMCL 定位 ===== -->
+  <include file="$(find turtlebot3_navigation)/launch/amcl.launch">
+    <arg name="initial_pose_x" value="$(arg x_pos)"/>
+    <arg name="initial_pose_y" value="$(arg y_pos)"/>
+    <arg name="initial_pose_a" value="$(arg yaw)"/>
+  </include>
+
+  <!-- ===== 5. move_base（全局 + 局部规划器）===== -->
+  <node pkg="move_base" type="move_base" respawn="false"
+        name="move_base" output="screen">
+    <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+    <!-- 代价地图障碍物/膨胀参数：麦克纳姆轮专用（robot_radius + inflation_radius）-->
+    <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+              command="load" ns="global_costmap"/>
+    <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+              command="load" ns="local_costmap"/>
+    <!-- 代价地图层结构：复用 turtlebot3_navigation 默认配置 -->
+    <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"  command="load"/>
+    <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml" command="load"/>
+    <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"      command="load"/>
+    <!-- DWA：holonomic_robot=true + y_vels 支持横向移动 -->
+    <rosparam file="$(find mecanum_robot)/param/dwa_local_planner_params_mecanum.yaml"
+              command="load"/>
+  </node>
+
+  <!-- ===== 6. RViz 可视化 ===== -->
+  <group if="$(arg open_rviz)">
+    <node pkg="rviz" type="rviz" name="rviz" required="true"
+          args="-d $(find orchard_navigation)/rviz/navigation.rviz"/>
+  </group>
+
+  <!-- 注意：单机器人仿真 launch，请勿与 multi_robot_navigation.launch 同时运行。
+       任务分配已升级为多机器人版本，请使用：
+         roslaunch orchard_navigation multi_robot_navigation.launch
+         roslaunch orchard_task_assignment task_assignment.launch
+  -->
+
+</launch>

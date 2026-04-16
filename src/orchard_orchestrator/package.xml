@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>orchard_orchestrator</name>
+  <version>0.1.0</version>
+  <description>
+    Multi-robot orchestrator for the orchard scenario: coordinates 3 picker
+    robots and 3 transporter robots across two picking rounds using
+    Hungarian assignment. Depends on the existing orchard_navigation stack.
+    Requires system packages python3-scipy and python3-numpy.
+  </description>
+
+  <maintainer email="todo@todo.com">dogeman</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>actionlib</exec_depend>
+  <exec_depend>move_base_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>tf</exec_depend>
+</package>

@@ -1,0 +1,302 @@
+<?xml version="1.0"?>
+<!--
+  multi_robot_navigation.launch
+  启动 6 台麦克纳姆轮机器人 + 各自独立的导航栈（AMCL + move_base）。
+  先运行此 launch，再运行 task_assignment.launch 触发任务。
+
+  布局：
+    robot1  (3.5, 7.0)  → Corridor 1 向东
+    robot2  (3.5, 5.0)  → Corridor 2 向东
+    robot3  (3.5, 3.0)  → Corridor 3 向东
+    robot4  (3.5, 1.0)  → Corridor 4 向东
+    robot5  (0.75, 7.0) → 西侧通道向南
+    robot6  (11.25,1.0) → 东侧通道向北
+-->
+<launch>
+
+  <!-- ===== 1. Gazebo 仿真 ===== -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name"   value="$(find orchard_navigation)/worlds/orchard.world"/>
+    <arg name="paused"       value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui"          value="true"/>
+    <arg name="headless"     value="false"/>
+    <arg name="debug"        value="false"/>
+  </include>
+
+  <!-- ===== 2. 共享地图服务 ===== -->
+  <node pkg="map_server" type="map_server" name="map_server"
+        args="$(find orchard_navigation)/maps/orchard_map.yaml"/>
+
+  <!-- ===================================================================
+       机器人配置块：每台机器人一组
+       ns        – ROS 命名空间（如 robot1）
+       x / y     – 生成位置坐标
+       model_idx – Gazebo 模型名称的唯一数字后缀
+       =================================================================== -->
+
+  <!-- ─── robot1：Corridor 1，向东 ─── -->
+  <group ns="robot1">
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder
+                    $(find mecanum_robot)/urdf/mecanum_robot.urdf.xacro
+                    robot_ns:=robot1"/>
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_robot1" output="screen"
+          args="-urdf -model mecanum_robot_1
+                -x 0.5 -y 3.0 -z 0.0 -Y 0.0
+                -param robot_description"/>
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="robot_state_publisher">
+      <param name="tf_prefix"          value="robot1"/>
+      <param name="publish_frequency"  type="double" value="50.0"/>
+    </node>
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+      <remap from="static_map" to="/static_map"/>
+      <rosparam file="$(find mecanum_robot)/param/amcl_params.yaml" command="load"/>
+      <param name="global_frame_id"   value="map"/>
+      <param name="odom_frame_id"     value="robot1/odom"/>
+      <param name="base_frame_id"     value="robot1/base_footprint"/>
+      <param name="scan_topic"        value="scan"/>
+      <param name="initial_pose_x"    value="0.5"/>
+      <param name="initial_pose_y"    value="3.0"/>
+      <param name="initial_pose_a"    value="0.0"/>
+    </node>
+    <node pkg="move_base" type="move_base" name="move_base" output="screen">
+      <remap from="map" to="/map"/>
+      <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="global_costmap"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="local_costmap"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"  command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml" command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"      command="load"/>
+      <rosparam file="$(find mecanum_robot)/param/dwa_local_planner_params_mecanum.yaml" command="load"/>
+      <param name="global_costmap/global_frame"      value="map"/>
+      <param name="global_costmap/robot_base_frame"  value="robot1/base_footprint"/>
+      <param name="local_costmap/global_frame"       value="robot1/odom"/>
+      <param name="local_costmap/robot_base_frame"   value="robot1/base_footprint"/>
+    </node>
+  </group>
+
+  <!-- ─── robot2：Corridor 2，向东 ─── -->
+  <group ns="robot2">
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder
+                    $(find mecanum_robot)/urdf/mecanum_robot.urdf.xacro
+                    robot_ns:=robot2"/>
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_robot2" output="screen"
+          args="-urdf -model mecanum_robot_2
+                -x 0.5 -y 5.0 -z 0.0 -Y 0.0
+                -param robot_description"/>
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="robot_state_publisher">
+      <param name="tf_prefix"          value="robot2"/>
+      <param name="publish_frequency"  type="double" value="50.0"/>
+    </node>
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+      <remap from="static_map" to="/static_map"/>
+      <rosparam file="$(find mecanum_robot)/param/amcl_params.yaml" command="load"/>
+      <param name="global_frame_id"   value="map"/>
+      <param name="odom_frame_id"     value="robot2/odom"/>
+      <param name="base_frame_id"     value="robot2/base_footprint"/>
+      <param name="scan_topic"        value="scan"/>
+      <param name="initial_pose_x"    value="0.5"/>
+      <param name="initial_pose_y"    value="5.0"/>
+      <param name="initial_pose_a"    value="0.0"/>
+    </node>
+    <node pkg="move_base" type="move_base" name="move_base" output="screen">
+      <remap from="map" to="/map"/>
+      <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="global_costmap"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="local_costmap"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"  command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml" command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"      command="load"/>
+      <rosparam file="$(find mecanum_robot)/param/dwa_local_planner_params_mecanum.yaml" command="load"/>
+      <param name="global_costmap/global_frame"      value="map"/>
+      <param name="global_costmap/robot_base_frame"  value="robot2/base_footprint"/>
+      <param name="local_costmap/global_frame"       value="robot2/odom"/>
+      <param name="local_costmap/robot_base_frame"   value="robot2/base_footprint"/>
+    </node>
+  </group>
+
+  <!-- ─── robot3：Corridor 3，向东 ─── -->
+  <group ns="robot3">
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder
+                    $(find mecanum_robot)/urdf/mecanum_robot.urdf.xacro
+                    robot_ns:=robot3"/>
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_robot3" output="screen"
+          args="-urdf -model mecanum_robot_3
+                -x 0.5 -y 7.0 -z 0.0 -Y 0.0
+                -param robot_description"/>
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="robot_state_publisher">
+      <param name="tf_prefix"          value="robot3"/>
+      <param name="publish_frequency"  type="double" value="50.0"/>
+    </node>
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+      <remap from="static_map" to="/static_map"/>
+      <rosparam file="$(find mecanum_robot)/param/amcl_params.yaml" command="load"/>
+      <param name="global_frame_id"   value="map"/>
+      <param name="odom_frame_id"     value="robot3/odom"/>
+      <param name="base_frame_id"     value="robot3/base_footprint"/>
+      <param name="scan_topic"        value="scan"/>
+      <param name="initial_pose_x"    value="0.5"/>
+      <param name="initial_pose_y"    value="7.0"/>
+      <param name="initial_pose_a"    value="0.0"/>
+    </node>
+    <node pkg="move_base" type="move_base" name="move_base" output="screen">
+      <remap from="map" to="/map"/>
+      <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="global_costmap"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="local_costmap"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"  command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml" command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"      command="load"/>
+      <rosparam file="$(find mecanum_robot)/param/dwa_local_planner_params_mecanum.yaml" command="load"/>
+      <param name="global_costmap/global_frame"      value="map"/>
+      <param name="global_costmap/robot_base_frame"  value="robot3/base_footprint"/>
+      <param name="local_costmap/global_frame"       value="robot3/odom"/>
+      <param name="local_costmap/robot_base_frame"   value="robot3/base_footprint"/>
+    </node>
+  </group>
+
+  <!-- ─── robot4：Corridor 4，向东 ─── -->
+  <group ns="robot4">
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder
+                    $(find mecanum_robot)/urdf/mecanum_robot.urdf.xacro
+                    robot_ns:=robot4"/>
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_robot4" output="screen"
+          args="-urdf -model mecanum_robot_4
+                -x 0.75 -y 4.0 -z 0.0 -Y 0.0
+                -param robot_description"/>
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="robot_state_publisher">
+      <param name="tf_prefix"          value="robot4"/>
+      <param name="publish_frequency"  type="double" value="50.0"/>
+    </node>
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+      <remap from="static_map" to="/static_map"/>
+      <rosparam file="$(find mecanum_robot)/param/amcl_params.yaml" command="load"/>
+      <param name="global_frame_id"   value="map"/>
+      <param name="odom_frame_id"     value="robot4/odom"/>
+      <param name="base_frame_id"     value="robot4/base_footprint"/>
+      <param name="scan_topic"        value="scan"/>
+      <param name="initial_pose_x"    value="0.75"/>
+      <param name="initial_pose_y"    value="4.0"/>
+      <param name="initial_pose_a"    value="0.0"/>
+    </node>
+    <node pkg="move_base" type="move_base" name="move_base" output="screen">
+      <remap from="map" to="/map"/>
+      <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="global_costmap"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="local_costmap"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"  command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml" command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"      command="load"/>
+      <rosparam file="$(find mecanum_robot)/param/dwa_local_planner_params_mecanum.yaml" command="load"/>
+      <param name="global_costmap/global_frame"      value="map"/>
+      <param name="global_costmap/robot_base_frame"  value="robot4/base_footprint"/>
+      <param name="local_costmap/global_frame"       value="robot4/odom"/>
+      <param name="local_costmap/robot_base_frame"   value="robot4/base_footprint"/>
+    </node>
+  </group>
+
+  <!-- ─── robot5：西侧通道，向南 ─── -->
+  <group ns="robot5">
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder
+                    $(find mecanum_robot)/urdf/mecanum_robot.urdf.xacro
+                    robot_ns:=robot5"/>
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_robot5" output="screen"
+          args="-urdf -model mecanum_robot_5
+                -x 0.75 -y 2.0 -z 0.0 -Y 0.0
+                -param robot_description"/>
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="robot_state_publisher">
+      <param name="tf_prefix"          value="robot5"/>
+      <param name="publish_frequency"  type="double" value="50.0"/>
+    </node>
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+      <remap from="static_map" to="/static_map"/>
+      <rosparam file="$(find mecanum_robot)/param/amcl_params.yaml" command="load"/>
+      <param name="global_frame_id"   value="map"/>
+      <param name="odom_frame_id"     value="robot5/odom"/>
+      <param name="base_frame_id"     value="robot5/base_footprint"/>
+      <param name="scan_topic"        value="scan"/>
+      <param name="initial_pose_x"    value="0.75"/>
+      <param name="initial_pose_y"    value="2.0"/>
+      <param name="initial_pose_a"    value="0.0"/>
+    </node>
+    <node pkg="move_base" type="move_base" name="move_base" output="screen">
+      <remap from="map" to="/map"/>
+      <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="global_costmap"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="local_costmap"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"  command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml" command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"      command="load"/>
+      <rosparam file="$(find mecanum_robot)/param/dwa_local_planner_params_mecanum.yaml" command="load"/>
+      <param name="global_costmap/global_frame"      value="map"/>
+      <param name="global_costmap/robot_base_frame"  value="robot5/base_footprint"/>
+      <param name="local_costmap/global_frame"       value="robot5/odom"/>
+      <param name="local_costmap/robot_base_frame"   value="robot5/base_footprint"/>
+    </node>
+  </group>
+
+  <!-- ─── robot6：东侧通道，向北 ─── -->
+  <group ns="robot6">
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder
+                    $(find mecanum_robot)/urdf/mecanum_robot.urdf.xacro
+                    robot_ns:=robot6"/>
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_robot6" output="screen"
+          args="-urdf -model mecanum_robot_6
+                -x 0.75 -y 6.0 -z 0.0 -Y 0.0
+                -param robot_description"/>
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="robot_state_publisher">
+      <param name="tf_prefix"          value="robot6"/>
+      <param name="publish_frequency"  type="double" value="50.0"/>
+    </node>
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+      <remap from="static_map" to="/static_map"/>
+      <rosparam file="$(find mecanum_robot)/param/amcl_params.yaml" command="load"/>
+      <param name="global_frame_id"   value="map"/>
+      <param name="odom_frame_id"     value="robot6/odom"/>
+      <param name="base_frame_id"     value="robot6/base_footprint"/>
+      <param name="scan_topic"        value="scan"/>
+      <param name="initial_pose_x"    value="0.75"/>
+      <param name="initial_pose_y"    value="6.0"/>
+      <param name="initial_pose_a"    value="0.0"/>
+    </node>
+    <node pkg="move_base" type="move_base" name="move_base" output="screen">
+      <remap from="map" to="/map"/>
+      <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="global_costmap"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="local_costmap"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"  command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml" command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"      command="load"/>
+      <rosparam file="$(find mecanum_robot)/param/dwa_local_planner_params_mecanum.yaml" command="load"/>
+      <param name="global_costmap/global_frame"      value="map"/>
+      <param name="global_costmap/robot_base_frame"  value="robot6/base_footprint"/>
+      <param name="local_costmap/global_frame"       value="robot6/odom"/>
+      <param name="local_costmap/robot_base_frame"   value="robot6/base_footprint"/>
+    </node>
+  </group>
+
+</launch>
