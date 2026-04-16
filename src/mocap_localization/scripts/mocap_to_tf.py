@@ -16,8 +16,10 @@ class MocapToTF:
         self.map_frame = rospy.get_param('~map_frame', 'map')
         self.publish_rate = rospy.get_param('~publish_rate', 50.0)
 
-        self.odom_frame = '{}/odom'.format(self.robot_ns) if self.robot_ns else 'odom'
-        self.base_frame = '{}/base_link'.format(self.robot_ns) if self.robot_ns else 'base_link'
+        default_odom = '{}/odom'.format(self.robot_ns) if self.robot_ns else 'odom'
+        default_base = '{}/base_link'.format(self.robot_ns) if self.robot_ns else 'base_link'
+        self.odom_frame = rospy.get_param('~odom_frame', default_odom)
+        self.base_frame = rospy.get_param('~base_frame', default_base)
 
         rospy.loginfo('[mocap_to_tf] mocap_pose_topic : %s', self.mocap_topic)
         rospy.loginfo('[mocap_to_tf] robot_namespace  : %s', self.robot_ns)
