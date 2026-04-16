@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>mocap_localization</name>
+  <version>0.1.0</version>
+  <description>Motion capture based localization: subscribes to mocap PoseStamped and broadcasts map-to-odom TF, replacing AMCL.</description>
+
+  <maintainer email="wanghaijiao1234@gmail.com">dogeman</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+
+  <export/>
+</package>

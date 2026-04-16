@@ -1,0 +1,12 @@
+<launch>
+  <arg name="robot_namespace"  default="robot1" />
+  <arg name="mocap_pose_topic" default="/mocap_node/Robot_1/pose" />
+
+  <node pkg="mocap_localization" type="mocap_to_tf.py" name="mocap_to_tf"
+        ns="$(arg robot_namespace)" output="screen">
+    <param name="mocap_pose_topic" value="$(arg mocap_pose_topic)" />
+    <param name="robot_namespace"  value="$(arg robot_namespace)" />
+    <param name="map_frame"        value="map" />
+    <param name="publish_rate"     value="50.0" />
+  </node>
+</launch>
