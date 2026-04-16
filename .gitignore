@@ -35,3 +35,6 @@ Thumbs.db
 # ===== 临时 / 备份文件 =====
 *.tmp
 *.bak
+
+# ===== catkin_tools 配置 =====
+.catkin_tools/
