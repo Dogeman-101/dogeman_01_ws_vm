@@ -191,4 +191,16 @@
     </plugin>
   </gazebo>
 
+  <!-- Ground-truth 位姿（P3D）— 仿真假动捕数据源 -->
+  <gazebo>
+    <plugin name="ground_truth_p3d" filename="libgazebo_ros_p3d.so">
+      <robotNamespace>$(arg robot_ns)</robotNamespace>
+      <bodyName>base_link</bodyName>
+      <topicName>ground_truth_pose</topicName>
+      <frameName>map</frameName>
+      <updateRate>100.0</updateRate>
+      <gaussianNoise>0.0</gaussianNoise>
+    </plugin>
+  </gazebo>
+
 </robot>

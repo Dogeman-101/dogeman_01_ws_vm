@@ -3,6 +3,7 @@ project(mocap_localization)
 
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
+  nav_msgs
   rospy
   tf2_geometry_msgs
   tf2_ros
@@ -12,6 +13,7 @@ catkin_package()
 
 catkin_install_python(PROGRAMS
   scripts/mocap_to_tf.py
+  scripts/odom_to_pose.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="robot_namespace"  default="robot1" />
+  <arg name="rigid_body_name"  default="Robot_1" />
+
+  <!-- 把 Gazebo P3D 的 Odometry 转成 PoseStamped，话题名对齐实机动捕 -->
+  <node pkg="mocap_localization" type="odom_to_pose.py" name="odom_to_pose"
+        ns="$(arg robot_namespace)" output="screen">
+    <remap from="~odom_in"  to="/$(arg robot_namespace)/ground_truth_pose" />
+    <remap from="~pose_out" to="/mocap_node/$(arg rigid_body_name)/pose" />
+  </node>
+</launch>
