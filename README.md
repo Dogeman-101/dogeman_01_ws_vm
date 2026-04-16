@@ -65,6 +65,10 @@ y=0  └────────────────────────
 | 匈牙利工具库 | `orchard_orchestrator/scripts/hungarian_utils.py` | 从匈牙利版任务分配器抽出的纯函数，供 orchestrator 复用；附带离线自检 |
 | 动捕定位节点 | `mocap_localization/scripts/mocap_to_tf.py` | 订阅动捕 PoseStamped，计算并广播 map→odom TF，替代 AMCL |
 | 动捕定位启动文件 | `mocap_localization/launch/mocap_to_tf.launch` | 启动 mocap_to_tf 节点，可配置动捕话题和机器人命名空间 |
+| 仿真假动捕 relay | `mocap_localization/scripts/odom_to_pose.py` | 将 Gazebo P3D 的 Odometry 转为 PoseStamped，对齐实机动捕话题 |
+| 假动捕启动文件 | `mocap_localization/launch/gazebo_fake_mocap.launch` | 启动 odom_to_pose relay，remap 话题名对齐 `/mocap_node/Robot_N/pose` |
+| mocap 版多机启动文件 | `orchard_navigation/launch/multi_robot_navigation_mocap.launch` | 用 mocap_to_tf 替代 AMCL 的 6 机器人仿真（端到端） |
+| mocap 版单车子 launch | `orchard_navigation/launch/single_robot_mocap.launch` | 单台车的 spawn + mocap 定位 + move_base，供主 launch 调用 |
 
 ### 调用的第三方工具包
 
@@ -94,6 +98,14 @@ y=0  └────────────────────────
 #### `launch/mocap_to_tf.launch` — 动捕定位启动文件
 
 启动单台机器人的 `mocap_to_tf` 节点，通过 arg 配置机器人命名空间和动捕话题。
+
+#### `scripts/odom_to_pose.py` — 仿真假动捕 relay
+
+Gazebo P3D 插件发布的是 `nav_msgs/Odometry`，而 `mocap_to_tf` 期望 `geometry_msgs/PoseStamped`。这个 relay 节点做消息类型转换，并通过 launch 文件 remap 将话题名映射到 `/mocap_node/Robot_N/pose`，使 `mocap_to_tf` 无需任何修改即可在仿真中运行。
+
+#### `launch/gazebo_fake_mocap.launch` — 假动捕 relay 启动文件
+
+启动 `odom_to_pose` relay 节点，参数为 `robot_namespace`（如 `robot1`）和 `rigid_body_name`（如 `Robot_1`），自动 remap 输入输出话题。
 
 ---
 
@@ -156,7 +168,7 @@ SDF 格式描述的虚拟果园：
 - `.yaml`：描述地图的分辨率（0.05m/px）、原点坐标、黑白判断阈值
 - 地图由 Python + numpy 程序化生成，与 `orchard.world` 的墙体位置精确对齐
 
-#### `launch/multi_robot_navigation.launch` — 主启动文件（v2.0）
+#### `launch/multi_robot_navigation.launch` — 主启动文件（AMCL 版）
 
 一次性启动整套仿真环境：
 1. 启动 Gazebo，加载 `orchard.world`
@@ -167,9 +179,21 @@ SDF 格式描述的虚拟果园：
    - 启动 `amcl`（粒子滤波定位，含关键 remap：`static_map → /static_map`）
    - 启动 `move_base`（导航栈，含关键 remap：`map → /map`）
 
+#### `launch/multi_robot_navigation_mocap.launch` — 主启动文件（mocap 版）
+
+与 AMCL 版功能相同，但用 `mocap_to_tf`（动捕/P3D 假动捕）替代 AMCL 做定位。结构更清晰：主 launch 只负责 Gazebo + map_server，6 台车各自通过 `single_robot_mocap.launch` 子文件启动。
+
+每台车的节点栈：`spawn_model` → `robot_state_publisher` → `odom_to_pose`（P3D relay）→ `mocap_to_tf`（TF 广播）→ `move_base`（导航）。
+
+两个版本可切换使用，不互相影响。
+
+#### `launch/single_robot_mocap.launch` — 单车子 launch（mocap 版内部使用）
+
+封装单台机器人的完整栈，接收 `robot_namespace`、`rigid_body_name`、`model_idx`、`x`、`y`、`yaw` 参数。由 `multi_robot_navigation_mocap.launch` 调用 6 次。
+
 #### `launch/orchard_navigation.launch` — 单机器人调试文件
 
-功能与上面相同，但只启动 1 台机器人，用于调试和开发。**不可与多机器人 launch 同时运行。**
+功能与 AMCL 版主启动文件相同，但只启动 1 台机器人，用于调试和开发。**不可与多机器人 launch 同时运行。**
 
 #### `rviz/navigation.rviz` — RViz 可视化配置
 
@@ -361,6 +385,16 @@ roslaunch orchard_task_assignment task_assignment.launch
 [task_assigner]   robot6      SUCCEEDED
 ```
 
+### 可选：使用 mocap 版仿真（用 P3D 假动捕替代 AMCL）
+
+终端 A 改用 mocap 版启动文件，其余步骤不变：
+
+```bash
+roslaunch orchard_navigation multi_robot_navigation_mocap.launch
+```
+
+数据流：Gazebo P3D 插件 → `odom_to_pose` relay → `mocap_to_tf` → `map→odom` TF → `move_base`。定位精度等同 ground truth，无粒子滤波收敛延迟。后续的任务分配和编排 launch 无需任何修改，直接在终端 B 启动即可。
+
 ### 可选：使用匈牙利算法版（让程序自动决定谁去哪）
 
 终端 A 保持不变（仿真继续运行），终端 B 改用：
@@ -440,9 +474,9 @@ pkill -f gzserver; pkill -f gzclient; pkill -f rosmaster
 
 导航栈还没启动好，task_assigner 等了 30 秒超时了。确认终端 A 的仿真已经稳定（没有持续报错）后再执行终端 B。
 
-**Q：机器人卡在原地不动**
+**Q：机器人卡在原地不动（AMCL 版）**
 
-AMCL 定位可能漂移了。打开 RViz，点击工具栏的 **2D Pose Estimate**，在地图上机器人实际位置点击并拖出朝向箭头，等粒子云收敛即可恢复。
+AMCL 定位可能漂移了。打开 RViz，点击工具栏的 **2D Pose Estimate**，在地图上机器人实际位置点击并拖出朝向箭头，等粒子云收敛即可恢复。如果频繁出现定位漂移，可以改用 mocap 版启动文件（`multi_robot_navigation_mocap.launch`），定位精度等同 ground truth，不存在粒子收敛问题。
 
 **Q：机器人卡在墙边过不去**
 
