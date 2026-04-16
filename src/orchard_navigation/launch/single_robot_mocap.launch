@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!--
+  single_robot_mocap.launch
+  单台麦轮车：spawn + robot_state_publisher + mocap 定位（P3D relay + mocap_to_tf）+ move_base
+  不含 AMCL，由 multi_robot_navigation_mocap.launch 调用。
+-->
+<launch>
+  <arg name="robot_namespace" />
+  <arg name="rigid_body_name" />
+  <arg name="model_idx" />
+  <arg name="x"   default="0.0" />
+  <arg name="y"   default="0.0" />
+  <arg name="yaw" default="0.0" />
+
+  <group ns="$(arg robot_namespace)">
+
+    <!-- URDF -->
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder
+                    $(find mecanum_robot)/urdf/mecanum_robot.urdf.xacro
+                    robot_ns:=$(arg robot_namespace)"/>
+
+    <!-- Spawn 到 Gazebo -->
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_robot" output="screen"
+          args="-urdf -model mecanum_robot_$(arg model_idx)
+                -x $(arg x) -y $(arg y) -z 0.0 -Y $(arg yaw)
+                -param robot_description"/>
+
+    <!-- TF: base_footprint → base_link → laser_link 等 -->
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="robot_state_publisher">
+      <param name="tf_prefix"         value="$(arg robot_namespace)"/>
+      <param name="publish_frequency" type="double" value="50.0"/>
+    </node>
+
+    <!-- move_base（与 AMCL 版完全相同，不依赖定位方式）-->
+    <node pkg="move_base" type="move_base" name="move_base" output="screen">
+      <remap from="map" to="/map"/>
+      <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="global_costmap"/>
+      <rosparam file="$(find mecanum_robot)/param/costmap_common_params_mecanum.yaml"
+                command="load" ns="local_costmap"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"  command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml" command="load"/>
+      <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"      command="load"/>
+      <rosparam file="$(find mecanum_robot)/param/dwa_local_planner_params_mecanum.yaml" command="load"/>
+      <param name="global_costmap/global_frame"      value="map"/>
+      <param name="global_costmap/robot_base_frame"  value="$(arg robot_namespace)/base_footprint"/>
+      <param name="local_costmap/global_frame"       value="$(arg robot_namespace)/odom"/>
+      <param name="local_costmap/robot_base_frame"   value="$(arg robot_namespace)/base_footprint"/>
+    </node>
+
+  </group>
+
+  <!-- mocap 定位链（在 group 外 include，子 launch 自带 ns，避免双重嵌套）-->
+
+  <!-- P3D Odometry → PoseStamped relay -->
+  <include file="$(find mocap_localization)/launch/gazebo_fake_mocap.launch">
+    <arg name="robot_namespace"  value="$(arg robot_namespace)" />
+    <arg name="rigid_body_name"  value="$(arg rigid_body_name)" />
+  </include>
+
+  <!-- PoseStamped → map→odom TF -->
+  <include file="$(find mocap_localization)/launch/mocap_to_tf.launch">
+    <arg name="robot_namespace"  value="$(arg robot_namespace)" />
+    <arg name="mocap_pose_topic" value="/mocap_node/$(arg rigid_body_name)/pose" />
+  </include>
+
+</launch>

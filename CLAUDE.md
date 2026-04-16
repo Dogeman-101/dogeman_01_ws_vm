@@ -62,6 +62,7 @@ pkill -9 -f gzserver; pkill -9 -f gzclient; pkill -9 -f rosmaster; pkill -9 -f r
 | 路径规划 | move_base：NavFn 全局 + DWA 局部（每台独立） |
 | 机器人驱动 | `libgazebo_ros_planar_move`（官方 gazebo_plugins，全向） |
 | 传感器 | `libgazebo_ros_laser`（360° 激光，3.5m 量程，10Hz） |
+| 仿真 ground truth | `libgazebo_ros_p3d`（100Hz，发布 Odometry 到 `ground_truth_pose`） |
 | 任务分配 | `task_assigner.py` / `task_assigner_hungarian.py`（一次性派发） |
 | 多阶段编排 | `orchard_orchestrator/orchestrator.py`（4 阶段串行 + 每阶段匈牙利分配） |
 
@@ -94,8 +95,12 @@ src/
 │       ├── task_assigner.py                 # 静态派发版（保留作对比）
 │       └── task_assigner_hungarian.py       # 匈牙利算法版
 ├── mocap_localization/               # 动捕定位（替代 AMCL）
-│   ├── scripts/mocap_to_tf.py               # 订阅 PoseStamped，广播 map→odom TF
-│   └── launch/mocap_to_tf.launch
+│   ├── scripts/
+│   │   ├── mocap_to_tf.py                   # 订阅 PoseStamped，广播 map→odom TF
+│   │   └── odom_to_pose.py                  # relay：Odometry→PoseStamped（仿真假动捕）
+│   └── launch/
+│       ├── mocap_to_tf.launch               # 实机动捕定位
+│       └── gazebo_fake_mocap.launch         # 仿真 P3D→PoseStamped 转发
 └── orchard_orchestrator/            # 4 阶段采摘-运输编排层（依赖 move_base）
     ├── config/orchard_layout.yaml           # depot + 6 任务 + picker/transporter 分组 + 时间参数
     ├── launch/orchestrator.launch
@@ -154,8 +159,8 @@ map → robotN/odom → robotN/base_footprint → robotN/base_link → robotN/la
 
 ## 关键设计约束
 
-**URDF 多机器人命名空间**：`mecanum_robot.urdf.xacro` 接受 `robot_ns` xacro 参数（默认为空，单机器人向后兼容）。设置后，激光和驱动插件的 topic/frame 均带前缀：
-- `robotNamespace: robotN` → topic 变为 `/robotN/scan`、`/robotN/cmd_vel`
+**URDF 多机器人命名空间**：`mecanum_robot.urdf.xacro` 接受 `robot_ns` xacro 参数（默认为空，单机器人向后兼容）。设置后，三个 Gazebo 插件（激光、planar_move、P3D）的 topic/frame 均带前缀：
+- `robotNamespace: robotN` → topic 变为 `/robotN/scan`、`/robotN/cmd_vel`、`/robotN/ground_truth_pose`
 - `odometryFrame: robotN/odom`、`robotBaseFrame: robotN/base_footprint`
 
 **多机器人 remap 规则**：在命名空间 `<group ns="robotN">` 内，服务和话题名均被相对解析。必须显式 remap：
@@ -191,6 +196,21 @@ move_base 加载两层参数，后加载者覆盖前者中同名 key：
 | `amcl_params.yaml` | `mecanum_robot/param/` | omni 里程计模型、粒子数等 |
 
 多机器人 launch **不使用** `turtlebot3_navigation/launch/amcl.launch`（其 frame_id 硬编码，无法命名空间化），改为直接启动 `amcl` 节点并注入 frame_id 参数。
+
+## 动捕定位与仿真假动捕（`mocap_localization`）
+
+`mocap_to_tf.py` 订阅 `geometry_msgs/PoseStamped`，计算 `map→odom` TF 并广播，替代 AMCL 的定位角色。接口统一，仿真和实机共用同一份代码：
+
+- **实机**：Nokov 动捕系统直接发布 `/mocap_node/Robot_N/pose`（PoseStamped）
+- **仿真**：URDF 中 `libgazebo_ros_p3d` 插件发布 `/robotN/ground_truth_pose`（Odometry），`odom_to_pose.py` relay 节点转为 PoseStamped 并 remap 到 `/mocap_node/Robot_N/pose`
+
+```
+# 仿真中为 robot1 启动假动捕 relay
+roslaunch mocap_localization gazebo_fake_mocap.launch \
+  robot_namespace:=robot1 rigid_body_name:=Robot_1
+```
+
+**P3D 插件约束**：`<frameName>map</frameName>` 无命名空间前缀（map 是全局帧）；`<bodyName>base_link</bodyName>` 必须与 URDF 中实际 link 名一致。
 
 ## 关联工作空间
 

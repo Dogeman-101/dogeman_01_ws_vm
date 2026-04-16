@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<!--
+  multi_robot_navigation_mocap.launch
+  6 台麦轮车仿真 — 用 mocap_to_tf 替代 AMCL 定位。
+  数据流：Gazebo P3D → odom_to_pose relay → mocap_to_tf → map→odom TF → move_base
+
+  AMCL 版本保留在 multi_robot_navigation.launch，两者可切换使用。
+
+  布局（与 AMCL 版一致）：
+    robot1  picker1       (0.5,  3.0)
+    robot2  picker2       (0.5,  5.0)
+    robot3  picker3       (0.5,  7.0)
+    robot4  transporter1  (0.75, 4.0)
+    robot5  transporter2  (0.75, 2.0)
+    robot6  transporter3  (0.75, 6.0)
+-->
+<launch>
+
+  <!-- ===== 1. Gazebo 仿真 ===== -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name"   value="$(find orchard_navigation)/worlds/orchard.world"/>
+    <arg name="paused"       value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui"          value="true"/>
+    <arg name="headless"     value="false"/>
+    <arg name="debug"        value="false"/>
+  </include>
+
+  <!-- ===== 2. 共享地图服务 ===== -->
+  <node pkg="map_server" type="map_server" name="map_server"
+        args="$(find orchard_navigation)/maps/orchard_map.yaml"/>
+
+  <!-- ===== 3. 6 台车 ===== -->
+
+  <!-- robot1 — picker1 -->
+  <include file="$(find orchard_navigation)/launch/single_robot_mocap.launch">
+    <arg name="robot_namespace" value="robot1"/>
+    <arg name="rigid_body_name" value="Robot_1"/>
+    <arg name="model_idx"       value="1"/>
+    <arg name="x" value="0.5"/>
+    <arg name="y" value="3.0"/>
+  </include>
+
+  <!-- robot2 — picker2 -->
+  <include file="$(find orchard_navigation)/launch/single_robot_mocap.launch">
+    <arg name="robot_namespace" value="robot2"/>
+    <arg name="rigid_body_name" value="Robot_2"/>
+    <arg name="model_idx"       value="2"/>
+    <arg name="x" value="0.5"/>
+    <arg name="y" value="5.0"/>
+  </include>
+
+  <!-- robot3 — picker3 -->
+  <include file="$(find orchard_navigation)/launch/single_robot_mocap.launch">
+    <arg name="robot_namespace" value="robot3"/>
+    <arg name="rigid_body_name" value="Robot_3"/>
+    <arg name="model_idx"       value="3"/>
+    <arg name="x" value="0.5"/>
+    <arg name="y" value="7.0"/>
+  </include>
+
+  <!-- robot4 — transporter1 -->
+  <include file="$(find orchard_navigation)/launch/single_robot_mocap.launch">
+    <arg name="robot_namespace" value="robot4"/>
+    <arg name="rigid_body_name" value="Robot_4"/>
+    <arg name="model_idx"       value="4"/>
+    <arg name="x" value="0.75"/>
+    <arg name="y" value="4.0"/>
+  </include>
+
+  <!-- robot5 — transporter2 -->
+  <include file="$(find orchard_navigation)/launch/single_robot_mocap.launch">
+    <arg name="robot_namespace" value="robot5"/>
+    <arg name="rigid_body_name" value="Robot_5"/>
+    <arg name="model_idx"       value="5"/>
+    <arg name="x" value="0.75"/>
+    <arg name="y" value="2.0"/>
+  </include>
+
+  <!-- robot6 — transporter3 -->
+  <include file="$(find orchard_navigation)/launch/single_robot_mocap.launch">
+    <arg name="robot_namespace" value="robot6"/>
+    <arg name="rigid_body_name" value="Robot_6"/>
+    <arg name="model_idx"       value="6"/>
+    <arg name="x" value="0.75"/>
+    <arg name="y" value="6.0"/>
+  </include>
+
+</launch>
