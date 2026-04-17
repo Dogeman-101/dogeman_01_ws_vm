@@ -1,0 +1,18 @@
+<launch>
+    <!-- ========== 接口参数 ========== -->
+    <!-- 地图名:对应 maps/$(arg map_name).yaml,换图只需传不同值 -->
+    <arg name="map_name"    default="animation_field" />
+    <!-- rviz 配置名:对应 rviz/$(arg rviz_config).rviz -->
+    <arg name="rviz_config" default="mvp" />
+    <!-- 只拉 map_server 不开 rviz(如 headless / 远程 ssh 无 X)时设 false -->
+    <arg name="use_rviz"    default="true" />
+
+    <!-- ========== map_server:广播 /map ========== -->
+    <node pkg="map_server" type="map_server" name="map_server"
+          args="$(find mocap_localization)/maps/$(arg map_name).yaml" />
+
+    <!-- ========== rviz(可选) ========== -->
+    <node if="$(arg use_rviz)"
+          pkg="rviz" type="rviz" name="rviz"
+          args="-d $(find mocap_localization)/rviz/$(arg rviz_config).rviz" />
+</launch>
