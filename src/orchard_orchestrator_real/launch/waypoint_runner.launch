@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!--
+场景 B：航点序列
+
+前置（分终端手起，本 launch 不 include）:
+  VM 侧   : roslaunch orchard_map vm_master.launch
+  W4A 侧  : roslaunch w4a_bringup_nav.launch
+
+航点列表在 scripts/phase1/waypoint_runner.py 顶部的 WAYPOINTS 列表，
+改完直接重跑本 launch，不用 catkin build。
+-->
+<launch>
+  <node pkg="orchard_orchestrator_real"
+        type="waypoint_runner.py"
+        name="waypoint_runner"
+        output="screen"/>
+</launch>

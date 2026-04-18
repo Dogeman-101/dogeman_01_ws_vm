@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!--
+场景 A：单点诊断
+
+前置（分终端手起，本 launch 不 include）:
+  VM 侧   : roslaunch orchard_map vm_master.launch
+  W4A 侧  : roslaunch w4a_bringup_nav.launch
+
+目标坐标在 scripts/phase1/single_goal_debug.py 顶部三常量 GOAL_X / GOAL_Y / GOAL_YAW，
+改完直接重跑本 launch，不用 catkin build。
+-->
+<launch>
+  <node pkg="orchard_orchestrator_real"
+        type="single_goal_debug.py"
+        name="single_goal_debug"
+        output="screen"/>
+</launch>

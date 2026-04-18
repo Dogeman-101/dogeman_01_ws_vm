@@ -23,7 +23,7 @@ VM 侧总启动 launch。
   <!-- ==================== 接口参数 ==================== -->
   <arg name="map_name"    default="animation_field"/>
   <arg name="rviz_config" default="mvp"/>
-  <arg name="use_rviz"    default="true"/>
+  <arg name="use_rviz"    default="False"/>
 
   <!-- ==================== 1. 动捕驱动 ==================== -->
   <!--

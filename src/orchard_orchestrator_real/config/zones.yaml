@@ -1,0 +1,20 @@
+# Phase 2 将加载此文件；Phase 1 脚本不读这里。
+# Phase 1 的坐标硬编码在：
+#   scripts/phase1/single_goal_debug.py 顶部 GOAL_X/GOAL_Y/GOAL_YAW
+#   scripts/phase1/waypoint_runner.py   顶部 WAYPOINTS
+
+waypoints:
+  home:    { x: 0.0, y: 0.0, yaw: 0.0 }
+  point_A: { x: 1.0, y: 0.0, yaw: 0.0 }
+  point_B: { x: 1.0, y: 1.0, yaw: 1.5708 }
+  point_C: { x: 0.0, y: 1.0, yaw: 3.1416 }
+
+# task_sequence:       # Phase 2 的航点执行顺序
+#   - point_A
+#   - point_B
+#   - point_C
+#   - home
+
+# loop:                # Phase 2 的循环模式开关
+#   enabled: false
+#   max_rounds: 3

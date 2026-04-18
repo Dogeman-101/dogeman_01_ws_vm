@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>orchard_orchestrator_real</name>
+  <version>0.1.0</version>
+  <description>
+    动捕下的实机任务编排节点骨架。
+    Phase 1：单点诊断 + 航点序列（单车）；Phase 2：yaml 驱动；Phase 3：多车匈牙利分配。
+    当前仓库只实现 Phase 1，后两阶段仅占位。
+  </description>
+
+  <maintainer email="wanghaijiao1234@gmail.com">Dogeman</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>rospy</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>move_base_msgs</build_depend>
+  <build_depend>actionlib</build_depend>
+  <build_depend>tf</build_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>move_base_msgs</exec_depend>
+  <exec_depend>actionlib</exec_depend>
+  <exec_depend>tf</exec_depend>
+
+  <export>
+  </export>
+</package>
