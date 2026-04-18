@@ -497,3 +497,41 @@ picker 采摘完停在了 pickup 坐标上，transporter 的 move_base 把 picke
 **Q：orchestrator 某阶段 `成功=False`，但进程没有崩，会继续跑下一阶段**
 
 这是故意的：阶段失败不会拖累后续阶段，B 阶段只会处理实际登记成功的果筐，缺失的任务会在日志里标为 `缺失果筐 [...]`。如果想排查为什么失败，去翻前面的 `目标失败 state=N` 或 `进入 entry 失败` 日志。
+
+---
+
+## 当前构建范围（2026-04-18）
+
+VM 侧的 `~/dogeman_01_ws` 目前**只构建实机栈**，上文的仿真四个包通过 `catkin config --skiplist` 从构建列表里排除：
+
+| 状态 | 包 |
+|------|-----|
+| 参与 `catkin build` | `orchard_map`、`mocap_localization` |
+| skiplist（文件与 git 历史保留，不编译） | `mecanum_robot`、`orchard_navigation`、`orchard_orchestrator`、`orchard_task_assignment` |
+
+VM 上日常启动命令：
+
+```bash
+roslaunch orchard_map vm_master.launch
+```
+
+它一条命令起动捕驱动（`mocap_nokov`）+ 地图 + rviz。前提是先 `source ~/catkin_mocap/devel/setup.bash` 和 `source ~/dogeman_01_ws/devel/setup.bash`。详细使用方式见 [src/orchard_map/README.md](src/orchard_map/README.md)。
+
+### 恢复仿真能力
+
+如果需要重新跑本文档上面各小节描述的 Gazebo 仿真流程：
+
+```bash
+cd ~/dogeman_01_ws
+catkin config --no-skiplist
+catkin build
+```
+
+之后上文所有 `roslaunch orchard_navigation …` / `roslaunch orchard_task_assignment …` / `roslaunch orchard_orchestrator …` 命令就恢复可用。
+
+### 查看 / 重设 skiplist
+
+```bash
+catkin config | grep -A 2 "Skiplisted"        # 看当前 skiplist
+catkin config --skiplist mecanum_robot orchard_navigation orchard_orchestrator orchard_task_assignment
+```

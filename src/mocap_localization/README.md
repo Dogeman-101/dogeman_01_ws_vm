@@ -67,3 +67,18 @@ roslaunch mocap_localization gazebo_fake_mocap.launch \
 rosrun mocap_localization odom_to_pose.py \
   _odom_in:=/test_odom _pose_out:=/test_pose
 ```
+
+## 目录变更说明（2026-04-18）
+
+从本次重构开始：
+
+- `maps/` 已迁移到 [`orchard_map/maps/`](../orchard_map/maps/)
+- `rviz/` 已迁移到 [`orchard_map/rviz/`](../orchard_map/rviz/)
+- `launch/vm_map_and_rviz.launch` 已迁移到 [`orchard_map/launch/vm_map_and_rviz.launch`](../orchard_map/launch/vm_map_and_rviz.launch)
+- VM 侧的总启动 launch 在 [`orchard_map/launch/vm_master.launch`](../orchard_map/launch/vm_master.launch)
+
+本包现在**专注于 `mocap_to_tf` / `odom_to_pose` 两个节点的 VM 版实现**，作为：
+- 仿真环境下的动捕数据转 TF（配合 Gazebo + `gazebo_fake_mocap.launch`）
+- 实机 `mocap_to_tf` 的"主版本"（W4A 的 `w4a_navigation` 会从这份源码保持同步）
+
+注意：W4A 上 **`~/orchard_w4a_ws/src/w4a_navigation/scripts/mocap_to_tf.py`** 是实机部署的"生产版本"，修改本包代码时要手工同步 W4A 那份。

@@ -9,10 +9,10 @@
 
     <!-- ========== map_server:广播 /map ========== -->
     <node pkg="map_server" type="map_server" name="map_server"
-          args="$(find mocap_localization)/maps/$(arg map_name).yaml" />
+          args="$(find orchard_map)/maps/$(arg map_name).yaml" />
 
     <!-- ========== rviz(可选) ========== -->
     <node if="$(arg use_rviz)"
           pkg="rviz" type="rviz" name="rviz"
-          args="-d $(find mocap_localization)/rviz/$(arg rviz_config).rviz" />
+          args="-d $(find orchard_map)/rviz/$(arg rviz_config).rviz" />
 </launch>

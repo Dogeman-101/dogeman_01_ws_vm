@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!--
+VM 侧总启动 launch。
+一条命令启动 VM 上所有需要运行的节点:
+  - mocap_nokov:动捕 UDP→ROS 翻译(来自兄弟工作区 ~/catkin_mocap)
+  - map_server:地图广播
+  - rviz:可视化(可选)
+
+用法:
+  roslaunch orchard_map vm_master.launch
+  roslaunch orchard_map vm_master.launch map_name:=other_field rviz_config:=debug use_rviz:=false
+
+前置:
+  source ~/catkin_mocap/devel/setup.bash     # 为了能 $(find mocap_nokov)
+  source ~/dogeman_01_ws/devel/setup.bash
+
+不包含:
+  - orchestrator(任务调度,后续用独立 launch)
+  - mocap_to_tf(仅在每台实机车上启,不在 VM 起)
+-->
+<launch>
+
+  <!-- ==================== 接口参数 ==================== -->
+  <arg name="map_name"    default="animation_field"/>
+  <arg name="rviz_config" default="mvp"/>
+  <arg name="use_rviz"    default="true"/>
+
+  <!-- ==================== 1. 动捕驱动 ==================== -->
+  <!--
+    mocap_nokov 从动捕主机(10.1.1.198)接收 UDP 数据,
+    翻译成 ROS 话题 /mocap_node/Robot_1/pose 等。
+    其自身 launch 里 tf 注释已关,仅发话题不发 TF。
+  -->
+  <include file="$(find mocap_nokov)/launch/mocap.launch"/>
+
+  <!-- ==================== 2. 地图 + rviz(参数化的轻量 launch) ==================== -->
+  <include file="$(find orchard_map)/launch/vm_map_and_rviz.launch">
+    <arg name="map_name"    value="$(arg map_name)"/>
+    <arg name="rviz_config" value="$(arg rviz_config)"/>
+    <arg name="use_rviz"    value="$(arg use_rviz)"/>
+  </include>
+
+</launch>

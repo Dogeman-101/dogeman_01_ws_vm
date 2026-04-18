@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **当前构建范围（2026-04-18）**：`mecanum_robot` / `orchard_navigation` / `orchard_orchestrator` / `orchard_task_assignment` 四个仿真包已通过 `catkin config --skiplist` 从编译列表排除。VM 上 `catkin build` 实际只构建 `orchard_map` 和 `mocap_localization`。因此**本文件下方所有 `roslaunch orchard_navigation …` / `roslaunch orchard_task_assignment …` / `roslaunch orchard_orchestrator …` 命令会报 "Package not found"**。
+>
+> - VM 日常启动：`roslaunch orchard_map vm_master.launch`（动捕驱动 + 地图 + rviz）
+> - 恢复仿真：`catkin config --no-skiplist && catkin build`，之后下方命令全部可用
+> - 查看当前 skiplist：`catkin config | grep -A 2 "Skiplisted"`
+
 ## 环境配置
 
 ```bash
@@ -17,8 +23,12 @@ source ~/dogeman_01_ws/devel/setup.bash   # 首次构建后执行
 # 构建（使用 catkin_tools，不是 catkin_make）
 cd ~/dogeman_01_ws && catkin build
 
-# 【主流程】步骤一：启动 6 机器人仿真（终端 A）
+# 【主流程】步骤一：启动 6 机器人仿真（终端 A，AMCL 定位）
 roslaunch orchard_navigation multi_robot_navigation.launch
+
+# 【主流程替代】mocap 版 6 机器人仿真（P3D 假动捕替代 AMCL，定位等同 ground truth）
+# 两种定位版本互斥，不要同时启动；终端 B 的任务/编排 launch 均无需改动
+roslaunch orchard_navigation multi_robot_navigation_mocap.launch
 
 # 【主流程】步骤二：仿真稳定后触发任务（终端 B）
 # task_assigner.py 在所有机器人完成后自动退出，非持久服务
@@ -80,8 +90,10 @@ src/
 │   ├── worlds/orchard.world
 │   ├── maps/orchard_map.{pgm,yaml}  # 240×160px，0.05m/px，覆盖 12m×8m
 │   ├── launch/
-│   │   ├── multi_robot_navigation.launch   # 【主用】6 机器人
-│   │   └── orchard_navigation.launch       # 单机器人调试用
+│   │   ├── multi_robot_navigation.launch       # 【主用】6 机器人 AMCL 版
+│   │   ├── multi_robot_navigation_mocap.launch # 6 机器人 mocap 版（P3D 假动捕替代 AMCL）
+│   │   ├── single_robot_mocap.launch           # mocap 版单车子 launch，由主 launch 调用 6 次
+│   │   └── orchard_navigation.launch           # 单机器人调试用
 │   └── rviz/navigation.rviz
 ├── orchard_task_assignment/         # 一次性任务分配层（依赖 move_base）
 │   ├── config/
@@ -211,6 +223,8 @@ roslaunch mocap_localization gazebo_fake_mocap.launch \
 ```
 
 **P3D 插件约束**：`<frameName>map</frameName>` 无命名空间前缀（map 是全局帧）；`<bodyName>base_link</bodyName>` 必须与 URDF 中实际 link 名一致。
+
+**端到端 mocap 版仿真**：`orchard_navigation/launch/multi_robot_navigation_mocap.launch` 已将 6 台机器人的 P3D→`odom_to_pose`→`mocap_to_tf`→`move_base` 链路完整封装，主 launch 只启 Gazebo + map_server，再通过 `single_robot_mocap.launch` 子文件启动每台车（接收 `robot_namespace` / `rigid_body_name` / `x` / `y` / `yaw` 等参数）。与 AMCL 版互斥，但下游 `orchard_task_assignment` / `orchard_orchestrator` launch 无需任何修改。
 
 ## 关联工作空间
 
