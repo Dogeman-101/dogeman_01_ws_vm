@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- TF 诊断监控(纯观察者,不发话题不发 TF).
+
+       前置(分终端手起,本 launch 不 include):
+         VM 侧:  roslaunch orchard_map vm_master.launch
+         W4A 侧: roslaunch w4a_bringup_nav.launch
+         VM 侧:  roslaunch orchard_orchestrator_real single_goal_debug.launch
+                 (或 waypoint_runner.launch)
+
+       本节点跑在 VM,结束后(Ctrl-C 或 ~max_duration 到期)
+       在 ~log_dir 下生成 tf_diagnosis_YYYYMMDD_HHMMSS.log 并打印摘要.
+
+       常用参数覆盖示例:
+         roslaunch orchard_orchestrator_real tf_monitor.launch \
+           odom_frame:=odom max_duration:=60.0 log_dir:=/tmp
+  -->
+  <arg name="mocap_topic"     default="/mocap_node/Robot_1/pose"/>
+  <arg name="odom_topic"      default="/odom"/>
+  <arg name="cmd_vel_topic"   default="/cmd_vel"/>
+  <arg name="map_frame"       default="map"/>
+  <arg name="odom_frame"      default="odom_combined"/>
+  <arg name="base_frame"      default="base_footprint"/>
+  <arg name="tick_rate"       default="1.0"/>
+  <arg name="max_duration"    default="0.0"/>
+  <arg name="log_dir"         default="~"/>
+
+  <node pkg="orchard_orchestrator_real" type="tf_monitor.py"
+        name="tf_monitor" output="screen">
+    <param name="mocap_topic"     value="$(arg mocap_topic)"/>
+    <param name="odom_topic"      value="$(arg odom_topic)"/>
+    <param name="cmd_vel_topic"   value="$(arg cmd_vel_topic)"/>
+    <param name="map_frame"       value="$(arg map_frame)"/>
+    <param name="odom_frame"      value="$(arg odom_frame)"/>
+    <param name="base_frame"      value="$(arg base_frame)"/>
+    <param name="tick_rate"       value="$(arg tick_rate)"/>
+    <param name="max_duration"    value="$(arg max_duration)"/>
+    <param name="log_dir"         value="$(arg log_dir)"/>
+  </node>
+</launch>
