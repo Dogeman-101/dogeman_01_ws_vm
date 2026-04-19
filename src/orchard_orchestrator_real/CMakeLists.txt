@@ -15,8 +15,10 @@ catkin_package()
 catkin_install_python(PROGRAMS
   scripts/phase1/single_goal_debug.py
   scripts/phase1/single_goal_simple.py
+  scripts/phase1/simple_waypoint_runner.py
   scripts/phase1/waypoint_runner.py
   scripts/phase1/tf_monitor.py
+  scripts/phase3/multi_robot_orchestrator.py
   scripts/algorithms/hungarian.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

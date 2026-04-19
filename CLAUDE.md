@@ -2,20 +2,113 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **当前构建范围（2026-04-18）**：`mecanum_robot` / `orchard_navigation` / `orchard_orchestrator` / `orchard_task_assignment` 四个仿真包已通过 `catkin config --skiplist` 从编译列表排除。VM 上 `catkin build` 实际只构建 `orchard_map` 和 `mocap_localization`。因此**本文件下方所有 `roslaunch orchard_navigation …` / `roslaunch orchard_task_assignment …` / `roslaunch orchard_orchestrator …` 命令会报 "Package not found"**。
+> **当前构建范围（2026-04-19）**：`mecanum_robot` / `orchard_navigation` / `orchard_orchestrator` / `orchard_task_assignment` 四个仿真包通过 `catkin config --skiplist` 从编译列表排除。VM 上 `catkin build` 实际只构建 `orchard_map` / `mocap_localization` / `orchard_orchestrator_real` 三个实机包。**下方所有 `roslaunch orchard_navigation …` / `roslaunch orchard_task_assignment …` / `roslaunch orchard_orchestrator …`（不带 `_real` 后缀）命令会报 "Package not found"**。
 >
-> - VM 日常启动：`roslaunch orchard_map vm_master.launch`（动捕驱动 + 地图 + rviz）
-> - 恢复仿真：`catkin config --no-skiplist && catkin build`，之后下方命令全部可用
+> - 当前主流程（实机动捕）：见下方"实机流程（动捕直控）"节
+> - 恢复仿真：`catkin config --no-skiplist && catkin build`，之后"仿真流程"节命令全部可用
 > - 查看当前 skiplist：`catkin config | grep -A 2 "Skiplisted"`
 
 ## 环境配置
 
 ```bash
 source /opt/ros/noetic/setup.bash
-source ~/dogeman_01_ws/devel/setup.bash   # 首次构建后执行
+source ~/catkin_mocap/devel/setup.bash     # 为 $(find mocap_nokov) 解析
+source ~/dogeman_01_ws/devel/setup.bash    # 首次构建后执行
 ```
 
+`~/catkin_mocap` 是兄弟工作空间，提供 `mocap_nokov` 包（动捕 UDP → ROS）。`vm_master.launch` 通过 `$(find mocap_nokov)` 引用它，**不 source 会报 "Package not found: mocap_nokov"**。
+
 无需设置 `TURTLEBOT3_MODEL` 环境变量，launch 文件不依赖该变量。
+
+## 实机流程（动捕直控，绕过 move_base）
+
+动捕场地 **4m(x) × 3m(y)，原点在形心**（注意：与"坐标系"节描述的仿真场地 12m×8m 原点在左下角不同）。6 台 W4A 麦轮车按 `roles` 分 3 picker + 3 transporter。不使用 move_base；`SimpleController` 直接订阅 `PoseStamped` 发 `cmd_vel`。
+
+```bash
+# 终端 A（VM）：动捕驱动 + 地图 + rviz
+roslaunch orchard_map vm_master.launch
+#   可选参数: map_name:=<yaml 不含后缀>  rviz_config:=<mvp|debug>  use_rviz:=false
+
+# 终端 B（W4A，每台车一个）：订 /robotN/cmd_vel 的驱动
+#   （W4A 侧代码不在本工作区）
+
+# 终端 C（VM）：运行编排 —— 三选一
+# (1) 单车单点诊断
+roslaunch orchard_orchestrator_real single_goal_simple.launch robot_id:=1
+# (2) 单车多航点（test_sequence 从 zones.yaml 加载）
+roslaunch orchard_orchestrator_real simple_waypoint_runner.launch robot_id:=1
+# (3) 多车 4 阶段采摘-运输编排
+roslaunch orchard_orchestrator_real multi_robot.launch num_robots:=3   # 只跑 picker
+roslaunch orchard_orchestrator_real multi_robot.launch num_robots:=6   # 全部
+#   可选: skip_gather:=true（跳阶段 0）  differential_mode:=false（麦轮保留侧移）
+```
+
+### SimpleController（[scripts/controller/simple_controller.py](src/orchard_orchestrator_real/scripts/controller/simple_controller.py)）
+
+- **纯 Python 类**，不是 ROS 节点。`import rospy, math` + `PoseStamped/Twist`，**不 import tf/numpy/move_base/actionlib**
+- 一个节点可实例化多台车（多车编排器就是这样）
+- 控制环由 `rospy.Timer(20Hz)` 驱动（不是 pose 回调）——mocap 超时仍会持续发零速保护
+- 状态机：`WAITING → MOVING → ROTATING → ARRIVED`（先位置后姿态）
+- `differential_mode=True`（默认）强制 `vy=0` 适配差速车；`False` 保留侧移供麦轮使用
+- `stop()` **只发一次零速**，Timer 下一拍会继续推 cmd_vel——**不构成"暂停"**。需要真正暂停必须加 `self.paused` flag（当前未实现）
+- world→body：`vx_body = dx·cos(yaw) + dy·sin(yaw)`，`vy_body = −dx·sin(yaw) + dy·cos(yaw)`；四元数→yaw 内联 `atan2(2(wz+xy), 1−2(y²+z²))`
+
+### 多车编排器（[scripts/phase3/multi_robot_orchestrator.py](src/orchard_orchestrator_real/scripts/phase3/multi_robot_orchestrator.py)）
+
+4 阶段串行（`num_robots=3` 时跳过阶段 2/3）：
+```
+阶段 0  集合       所有活跃车 Hungarian → base slot
+阶段 1  采摘出发   3 picker Hungarian → pick_targets
+阶段 2  运输出发   3 transporter Hungarian → picker 实际停留点
+阶段 3  运输返回   transporter → 阶段 0 分配的 base slot（yaw=3.14 掉头）
+阶段 4  采摘返回   picker → 阶段 0 分配的 base slot（yaw=3.14 掉头）
+```
+
+**关键设计**：
+- 每阶段**新建** SimpleController，阶段结束 `stop()` 后弃用。SimpleController 没有 `set_goal()` 接口，不做 goal 切换
+- 编排器**自建** `/mocap_node/Robot_N/pose` 订阅缓存位姿用于 Hungarian 代价矩阵；SimpleController 对同一 topic 另起订阅，ROS 允许多订阅者互不干扰
+- 代价函数是**欧氏直线距离**（[algorithms/cost_matrix.py](src/orchard_orchestrator_real/scripts/algorithms/cost_matrix.py)），不是 move_base 路径长度
+- **阶段 3/4 返程点绑定到阶段 0 的分配结果**（闭环归位），不用"y 保持不变"
+- `safety_distance`（默认 0.5m）**warn-only**：`stop()` 不暂停，只 log 告警不动车
+
+### 代码分层（`orchard_orchestrator_real/scripts/`）
+
+| 目录 | 职责 | 硬约束 |
+|------|------|------|
+| `controller/` | SimpleController 类 | 不 import tf/numpy/move_base/actionlib |
+| `algorithms/` | Hungarian / cost_matrix（纯 Python） | **禁止 import rospy**，可 `python3 hungarian.py` 自检 |
+| `utils/` | ROS 客户端封装（move_base_client 等） | 无业务逻辑 |
+| `phase1/` | 单车诊断/航点（move_base 版 + SimpleController 版并存） | 经 `utils/` 或 `controller/`，不直接 `SimpleActionClient` |
+| `phase3/` | 多车编排器 | 实例化 SimpleController，不自己写控制律 |
+
+**`controller/simple_controller.py` 已跑通**：没有明确需求不要修改其接口。`algorithms/` 的 `assign_tasks(C) → [(r,t),...]` / `build_cost_matrix(robots, tasks)` 接口已定型并自检过。
+
+### 配置文件 `orchard_orchestrator_real/config/zones.yaml`
+
+实机场地布局。顶层键：`base`（6 停车位）/ `pick_targets`（3 采摘点）/ `roles.picker` / `roles.transporter`（`robotN` 字符串列表）/ `return_yaw`（默认 3.14159 掉头朝西）/ `safety_distance` / `test_sequence`（单车自检序列）。
+
+修改后**不必 catkin build**（yaml 由 `<rosparam command="load">` 运行时加载），重启 launch 即生效。
+
+### orchard_map 包
+
+**纯配置包，不含节点代码**：
+- `launch/vm_master.launch` — VM 总启动（动捕驱动 + 地图 + rviz）
+- `launch/vm_map_and_rviz.launch` — 地图+rviz 的参数化轻量 launch
+- `maps/animation_field.{pgm,yaml}` — 8m×8m 空白占位地图（地图中心对齐动捕原点，分辨率 0.05 m/pixel）
+- `rviz/mvp.rviz` — MVP rviz 配置
+
+换地图：放到 `maps/`，`map_name:=新名字`（不含 `.yaml` 后缀）即可，无需改代码。
+
+### mocap_to_tf 说明
+
+`mocap_localization/scripts/mocap_to_tf.py` 把 `PoseStamped` 转成 `map→odom` TF 广播，**替代 AMCL**。但：
+- `vm_master.launch` **不启** `mocap_to_tf`——实机时每台车本地启动
+- `orchard_orchestrator_real` 的 SimpleController 绕过 TF，直接用 `PoseStamped`，**不依赖** `mocap_to_tf`
+- 需要 TF 的外部节点（rviz robot model、其它 move_base 实验）才需要启动它
+
+---
+
+> 以下所有章节（仿真 6 车 + AMCL + move_base + task_assigner + orchestrator 等）为**仿真流程**文档。当前 skiplist 下这些包不编译，相关 launch 报 "Package not found"。恢复仿真：`catkin config --no-skiplist && catkin build`。
 
 ## 构建与运行
 

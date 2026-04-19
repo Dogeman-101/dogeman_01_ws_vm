@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!--
+simple_waypoint_runner.launch — 单车多航点（动捕直控）
+
+用法:
+  roslaunch orchard_orchestrator_real simple_waypoint_runner.launch
+  roslaunch orchard_orchestrator_real simple_waypoint_runner.launch robot_id:=2
+
+前置:
+  VM  : 动捕 nokov driver（发 /mocap_node/Robot_N/pose）
+  W4A : 订 /robotN/cmd_vel 的驱动节点
+-->
+<launch>
+  <arg name="robot_id" default="1"/>
+
+  <node pkg="orchard_orchestrator_real" type="simple_waypoint_runner.py"
+        name="simple_waypoint_runner" output="screen">
+    <param name="mocap_topic"   value="/mocap_node/Robot_$(arg robot_id)/pose"/>
+    <param name="cmd_vel_topic" value="/robot$(arg robot_id)/cmd_vel"/>
+    <rosparam command="load" file="$(find orchard_orchestrator_real)/config/zones.yaml"/>
+  </node>
+</launch>

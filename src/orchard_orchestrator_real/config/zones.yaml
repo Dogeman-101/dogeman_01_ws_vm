@@ -1,20 +1,34 @@
-# Phase 2 将加载此文件；Phase 1 脚本不读这里。
-# Phase 1 的坐标硬编码在：
-#   scripts/phase1/single_goal_debug.py 顶部 GOAL_X/GOAL_Y/GOAL_YAW
-#   scripts/phase1/waypoint_runner.py   顶部 WAYPOINTS
+# 动捕场地：4m(x) × 3m(y)，原点在形心
+# 墙：y=+1.0 / 0.0 / −1.0（x: −1.5 到 +1.5）
+# 可走通道：top(y=+1.25) / lane3(y=+0.5) / lane2(y=−0.5) / bottom(y=−1.25)
 
-waypoints:
-  home:    { x: 0.0, y: 0.0, yaw: 0.0 }
-  point_A: { x: 1.0, y: 0.0, yaw: 0.0 }
-  point_B: { x: 1.0, y: 1.0, yaw: 1.5708 }
-  point_C: { x: 0.0, y: 1.0, yaw: 3.1416 }
+base:
+  slot_1: { x: -1.8, y: -1.25, yaw: 0.0 }
+  slot_2: { x: -1.8, y: -0.75, yaw: 0.0 }
+  slot_3: { x: -1.8, y: -0.25, yaw: 0.0 }
+  slot_4: { x: -1.8, y:  0.25, yaw: 0.0 }
+  slot_5: { x: -1.8, y:  0.75, yaw: 0.0 }
+  slot_6: { x: -1.8, y:  1.25, yaw: 0.0 }
 
-# task_sequence:       # Phase 2 的航点执行顺序
-#   - point_A
-#   - point_B
-#   - point_C
-#   - home
+# 采摘目标：3 条通道的右端（中间两条 + 顶部通道；底部通道留作 transporter 返程走廊）
+pick_targets:
+  lane2_end: { x: 1.5, y: -0.50, yaw: 0.0 }
+  lane3_end: { x: 1.5, y:  0.50, yaw: 0.0 }
+  top_end:   { x: 1.5, y:  1.25, yaw: 0.0 }
 
-# loop:                # Phase 2 的循环模式开关
-#   enabled: false
-#   max_rounds: 3
+roles:
+  picker:      [robot1, robot2, robot3]
+  transporter: [robot4, robot5, robot6]
+
+# 返程目标 yaw：到 base 后朝西（−x 方向），即"掉头"
+return_yaw: 3.14159
+
+# 安全距离（同组内两两检测；当前实现 warn-only，不暂停车）
+safety_distance: 0.5
+
+# 单车多航点自检序列（simple_waypoint_runner 用）
+test_sequence:
+  - { name: "base",        x: -1.8, y:  0.0, yaw: 0.0 }
+  - { name: "lane3_end",   x:  1.5, y:  0.5, yaw: 0.0 }
+  - { name: "lane3_entry", x: -1.5, y:  0.5, yaw: 3.14159 }
+  - { name: "base",        x: -1.8, y:  0.0, yaw: 0.0 }

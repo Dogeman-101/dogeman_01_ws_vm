@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<!--
+multi_robot.launch — 多车采摘-运输编排
+
+用法:
+  # 3 车试水（只跑 picker 流程：阶段 0→1→4）
+  roslaunch orchard_orchestrator_real multi_robot.launch num_robots:=3
+
+  # 6 车完整（阶段 0→1→2→3→4）
+  roslaunch orchard_orchestrator_real multi_robot.launch num_robots:=6
+
+  # 跳过阶段 0（集合）
+  roslaunch orchard_orchestrator_real multi_robot.launch skip_gather:=true
+
+  # 切麦轮模式（保留侧移）
+  roslaunch orchard_orchestrator_real multi_robot.launch differential_mode:=false
+
+前置:
+  VM  : 动捕 nokov driver（发 /mocap_node/Robot_N/pose，N=1..6）
+  W4A : 每台车订 /robotN/cmd_vel 的驱动节点
+-->
+<launch>
+  <arg name="num_robots"        default="6"/>
+  <arg name="skip_gather"       default="false"/>
+  <arg name="differential_mode" default="true"/>
+
+  <node pkg="orchard_orchestrator_real" type="multi_robot_orchestrator.py"
+        name="multi_robot_orchestrator" output="screen">
+    <param name="num_robots"        value="$(arg num_robots)"/>
+    <param name="skip_gather"       value="$(arg skip_gather)"/>
+    <param name="differential_mode" value="$(arg differential_mode)"/>
+    <rosparam command="load" file="$(find orchard_orchestrator_real)/config/zones.yaml"/>
+  </node>
+</launch>

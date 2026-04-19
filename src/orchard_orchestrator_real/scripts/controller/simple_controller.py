@@ -137,7 +137,10 @@ class SimpleController(object):
             # 差速模式：不允许侧移，车体坐标系的 vy 直接置零
             if self.differential_mode:
                 vy = 0.0
-            wz = self._clamp(self.kp_angular * yaw_err,
+            # MOVING 阶段跟踪「到目标的方位角」，不是最终 yaw。
+            # 差速车靠车头对准目标才能收敛 y 偏差；全向车用方位角也更直观。
+            bearing_err = self._normalize_angle(math.atan2(dy, dx) - cyaw)
+            wz = self._clamp(self.kp_angular * bearing_err,
                              -self.max_angular, self.max_angular)
             self.state = "MOVING"
             self._publish(vx, vy, wz)
