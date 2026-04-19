@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<!--
+single_goal_simple.launch — 动捕直控单点调试（绕过 move_base）
+
+用法:
+  roslaunch orchard_orchestrator_real single_goal_simple.launch
+  roslaunch orchard_orchestrator_real single_goal_simple.launch robot_id:=2
+
+前置:
+  VM  : roslaunch orchard_map vm_master.launch
+  W4A : roslaunch w4a_navigation w4a_simple.launch robot_id:=<n>
+-->
+<launch>
+  <arg name="robot_id" default="1"/>
+
+  <node pkg="orchard_orchestrator_real" type="single_goal_simple.py"
+        name="single_goal_simple" output="screen">
+    <param name="mocap_topic"   value="/mocap_node/Robot_$(arg robot_id)/pose"/>
+    <param name="cmd_vel_topic" value="/robot$(arg robot_id)/cmd_vel"/>
+  </node>
+</launch>
