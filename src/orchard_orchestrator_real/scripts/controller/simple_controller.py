@@ -30,7 +30,12 @@ class SimpleController(object):
                  kp_linear=0.5, kp_angular=1.0,
                  max_linear=0.25, max_angular=1.0,
                  dist_tolerance=0.15, yaw_tolerance=0.1,
-                 mocap_timeout=1.0, control_rate=20.0):
+                 mocap_timeout=1.0, control_rate=20.0,
+                 differential_mode=True):
+        # differential_mode:
+        #   True  → 差速模式，_tick 计算后强制 vy=0（不侧移，适配普通两轮差速车）
+        #   False → 全向模式，保留 vy（麦轮 / 全向底盘）
+        # 默认 True，要切麦轮直接传 False 或实例化后改 self.differential_mode。
         self.robot_name = robot_name
         self.goal_x = float(goal_x)
         self.goal_y = float(goal_y)
@@ -43,6 +48,7 @@ class SimpleController(object):
         self.dist_tolerance = float(dist_tolerance)
         self.yaw_tolerance = float(yaw_tolerance)
         self.mocap_timeout = float(mocap_timeout)
+        self.differential_mode = bool(differential_mode)
 
         # 公开状态（节点查询）
         self.current_pose = None           # (x, y, yaw) 或 None
@@ -128,6 +134,9 @@ class SimpleController(object):
             speed = min(distance * self.kp_linear, self.max_linear)
             vx = speed * vx_body / distance
             vy = speed * vy_body / distance
+            # 差速模式：不允许侧移，车体坐标系的 vy 直接置零
+            if self.differential_mode:
+                vy = 0.0
             wz = self._clamp(self.kp_angular * yaw_err,
                              -self.max_angular, self.max_angular)
             self.state = "MOVING"
