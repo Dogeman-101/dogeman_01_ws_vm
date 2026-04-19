@@ -57,6 +57,8 @@ class SimpleController(object):
         self.state = "WAITING"             # WAITING / MOVING / ROTATING / ARRIVED
         self.distance_to_goal = float("inf")
         self.last_cmd = (0.0, 0.0, 0.0)    # (vx, vy, wz) 最后一次发出
+        # 单向锁：一旦位置到位就不再回退到 MOVING，避免原地转弯漂移触发震荡
+        self._reached_position = False
 
         # 用于降频的告警（避免刷屏）
         self._last_timeout_warn = rospy.Time(0)
@@ -127,26 +129,32 @@ class SimpleController(object):
 
         yaw_err = self._normalize_angle(self.goal_yaw - cyaw)
 
-        if distance >= self.dist_tolerance:
+        # 一旦位置到位，单向锁住，避免原地转弯漂移把 distance 推过 tolerance
+        # 再切回 MOVING → 再 ROTATING 的无限震荡。
+        if not self._reached_position and distance < self.dist_tolerance:
+            self._reached_position = True
+
+        if not self._reached_position:
+            # MOVING：还没到位，朝目标走
             # world → body：旋转 −yaw
             vx_body = dx * math.cos(cyaw) + dy * math.sin(cyaw)
             vy_body = -dx * math.sin(cyaw) + dy * math.cos(cyaw)
             speed = min(distance * self.kp_linear, self.max_linear)
             vx = speed * vx_body / distance
-            vy = speed * vy_body / distance
-            # 差速模式：不允许侧移，车体坐标系的 vy 直接置零
             if self.differential_mode:
                 vy = 0.0
-            # MOVING 阶段跟踪「到目标的方位角」，不是最终 yaw。
-            # 差速车靠车头对准目标才能收敛 y 偏差；全向车用方位角也更直观。
+            else:
+                vy = speed * vy_body / distance
+            # MOVING 阶段跟踪「到目标的方位角」，差速车靠车头对准目标才能收敛 y 偏差。
             bearing_err = self._normalize_angle(math.atan2(dy, dx) - cyaw)
             wz = self._clamp(self.kp_angular * bearing_err,
                              -self.max_angular, self.max_angular)
             self.state = "MOVING"
             self._publish(vx, vy, wz)
         elif abs(yaw_err) >= self.yaw_tolerance:
-            wz = self._clamp(self.kp_angular * yaw_err,
-                             -self.max_angular, self.max_angular)
+            # ROTATING：原地转到目标朝向；角速度上限减半，减少转弯物理漂移
+            max_rot = self.max_angular * 0.5
+            wz = self._clamp(self.kp_angular * yaw_err, -max_rot, max_rot)
             self.state = "ROTATING"
             self._publish(0.0, 0.0, wz)
         else:
