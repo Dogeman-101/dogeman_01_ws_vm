@@ -29,7 +29,7 @@ class SimpleController(object):
                  robot_name="robot1",
                  kp_linear=0.5, kp_angular=1.0,
                  max_linear=0.25, max_angular=1.0,
-                 dist_tolerance=0.15, yaw_tolerance=0.1,
+                 dist_tolerance=0.2, yaw_tolerance=0.3,
                  mocap_timeout=1.0, control_rate=20.0,
                  differential_mode=True):
         # differential_mode:
@@ -152,9 +152,14 @@ class SimpleController(object):
             self.state = "MOVING"
             self._publish(vx, vy, wz)
         elif abs(yaw_err) >= self.yaw_tolerance:
-            # ROTATING：原地转到目标朝向；角速度上限减半，减少转弯物理漂移
-            max_rot = self.max_angular * 0.5
+            # ROTATING：原地转到目标朝向。
+            # 上限取 max_angular * 0.8（减漂移但别过低）。
+            # 死区补偿：W4A 电机在 |wz|<0.3 时克服不了摩擦转不动，
+            # 小于阈值时拉到 ±0.3（保留符号）。
+            max_rot = self.max_angular * 0.8
             wz = self._clamp(self.kp_angular * yaw_err, -max_rot, max_rot)
+            if 0 < abs(wz) < 0.3:
+                wz = 0.3 if wz > 0 else -0.3
             self.state = "ROTATING"
             self._publish(0.0, 0.0, wz)
         else:

@@ -3,12 +3,11 @@
 # 可走通道：top(y=+1.25) / lane3(y=+0.5) / lane2(y=−0.5) / bottom(y=−1.25)
 
 base:
-  slot_1: { x: -1.6, y: -1.25, yaw: 0.0 }
-  slot_2: { x: -1.6, y: -0.75, yaw: 0.0 }
-  slot_3: { x: -1.6, y: -0.25, yaw: 0.0 }
-  slot_4: { x: -1.6, y:  0.25, yaw: 0.0 }
-  slot_5: { x: -1.6, y:  0.75, yaw: 0.0 }
-  slot_6: { x: -1.6, y:  1.25, yaw: 0.0 }
+  slot_1: { x: -1.3, y: -1.25, yaw: 0.0 }
+  slot_2: { x: -1.3, y: -0.75, yaw: 0.0 }
+  slot_3: { x: -1.3, y: -0.25, yaw: 0.0 }
+  slot_4: { x: -1.3, y:  0.75, yaw: 0.0 }
+  slot_5: { x: -1.3, y:  1.25, yaw: 0.0 }
 
 # 采摘目标：3 条通道的右端（中间两条 + 顶部通道；底部通道留作 transporter 返程走廊）
 pick_targets:
@@ -18,17 +17,17 @@ pick_targets:
 
 roles:
   picker:      [robot1, robot2, robot3]
-  transporter: [robot4, robot5, robot6]
+  transporter: [robot5, robot6]
 
 # 返程目标 yaw：到 base 后朝西（−x 方向），即"掉头"
 return_yaw: 3.14159
 
 # 安全距离（同组内两两检测；当前实现 warn-only，不暂停车）
-safety_distance: 0.5
+safety_distance: 0.3
 
 # 单车多航点自检序列（simple_waypoint_runner 用）
 test_sequence:
-  - { name: "base",        x: -1.6, y:  0.0, yaw: 0.0 }
-  - { name: "lane3_end",   x:  1.5, y:  0.5, yaw: 0.0 }
-  - { name: "lane3_entry", x: -1.5, y:  0.5, yaw: 3.14159 }
-  - { name: "base",        x: -1.6, y:  0.0, yaw: 0.0 }
+  - { name: "base",        x: -1.3, y:  0.0, yaw: 0.0 }
+  - { name: "lane3_end",   x:  1.3, y:  0.5, yaw: 0.0 }
+  - { name: "lane3_entry", x: -1.3, y:  0.5, yaw: 3.14159 }
+  - { name: "base",        x: -1.3, y:  0.0, yaw: 0.0 }

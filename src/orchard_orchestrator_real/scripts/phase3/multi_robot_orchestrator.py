@@ -72,12 +72,8 @@ class Orchestrator(object):
         self.pickers = list(self.roles["picker"])
         self.transporters = list(self.roles["transporter"])
 
-        if self.num_robots == 3:
-            self.active = list(self.pickers)
-            self.skip_transport = True
-        else:
-            self.active = self.pickers + self.transporters
-            self.skip_transport = False
+        self.active = self.pickers + self.transporters
+        self.skip_transport = (len(self.transporters) == 0)
 
         rospy.loginfo("[orchestrator] num_robots=%d skip_gather=%s differential_mode=%s",
                       self.num_robots, self.skip_gather, self.differential_mode)
@@ -261,7 +257,7 @@ class Orchestrator(object):
             pose = self.pose_cache[p]
             if pose is None:
                 raise RuntimeError("picker {} 没有 pose".format(p))
-            pickup_points.append((pose[0], pose[1], 0.0))  # 到达 picker 时朝东
+            pickup_points.append((pose[0] - 0.4, pose[1], 0.0))  # 到达 picker 时朝东
             labels.append("pickup_{}".format(p))
         self.run_phase("2-运输出发", self.transporters,
                        pickup_points, labels, assign=True)
@@ -313,7 +309,7 @@ class Orchestrator(object):
             self.phase_transport_out()
             self.phase_transport_back()
         else:
-            rospy.loginfo("[orchestrator] 跳过阶段 2/3（num_robots=3）")
+            rospy.loginfo("[orchestrator] 跳过阶段 2/3（roles 无 transporter）")
 
         self.phase_pick_back()
 

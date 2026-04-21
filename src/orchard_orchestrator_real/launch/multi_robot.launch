@@ -21,7 +21,7 @@ multi_robot.launch — 多车采摘-运输编排
 -->
 <launch>
   <arg name="num_robots"        default="6"/>
-  <arg name="skip_gather"       default="false"/>
+  <arg name="skip_gather"       default="True"/>
   <arg name="differential_mode" default="true"/>
 
   <node pkg="orchard_orchestrator_real" type="multi_robot_orchestrator.py"
