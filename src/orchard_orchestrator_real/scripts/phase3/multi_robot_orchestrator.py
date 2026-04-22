@@ -52,6 +52,11 @@ def quat_to_yaw(q):
 
 
 class Orchestrator(object):
+    # 阶段超时常量（秒）——统一在这里调
+    TIMEOUT_LANE    = 30.0   # S0/S1/S2：集合 / 走过道去采摘点 / 去服务 picker
+    TIMEOUT_RETURN  = 40.0   # S3/S4：transporter / picker 返 base（路径较长）
+    UNLOAD_DURATION = 5.0    # 卸货停留时长（预留，当前未调用）
+
     def __init__(self):
         self.num_robots = int(rospy.get_param("~num_robots", 6))
         self.skip_gather = bool(rospy.get_param("~skip_gather", False))
@@ -75,6 +80,9 @@ class Orchestrator(object):
         self.active = self.pickers + self.transporters
         self.skip_transport = (len(self.transporters) == 0)
 
+        self.wait_rounds = {pid: 0 for pid in self.pickers}
+        self.fairness_alpha = 2.5
+
         rospy.loginfo("[orchestrator] num_robots=%d skip_gather=%s differential_mode=%s",
                       self.num_robots, self.skip_gather, self.differential_mode)
         rospy.loginfo("[orchestrator] 活跃机器人: %s", self.active)
@@ -94,6 +102,8 @@ class Orchestrator(object):
         self.base_assignment = {}
         # 阶段耗时记录
         self.phase_times = []
+        # 阶段到达 / 超时报告：[{"stage": name, "timed_out": [robot_name,...]}]
+        self.stage_report = []
         # 活跃 controllers（供 shutdown hook 用）
         self._active_controllers = []
         rospy.on_shutdown(self._shutdown_stop_all)
@@ -126,7 +136,8 @@ class Orchestrator(object):
     # ------------------------------------------------------------------
     #  阶段公共逻辑
     # ------------------------------------------------------------------
-    def run_phase(self, phase_name, robot_ids, goals_list, task_labels, assign=True):
+    def run_phase(self, phase_name, robot_ids, goals_list, task_labels,
+                  assign=True, timeout_sec=None):
         """
         robot_ids:   list[str]，本阶段参与的机器人
         goals_list:  list[(x, y, yaw)]，候选目标
@@ -179,18 +190,16 @@ class Orchestrator(object):
             )
         self._active_controllers = list(controllers.values())
 
-        # 等待循环 + 安全检测 + 2s 状态打印
-        safety_rate = rospy.Rate(10.0)
-        last_print = rospy.Time.now()
+        # 等待 + 超时保护（_check_safety / 2s 状态打印折进 wait_until_arrived）
+        if timeout_sec is None:
+            timeout_sec = self.TIMEOUT_LANE
         try:
-            while not rospy.is_shutdown():
-                if all(c.arrived for c in controllers.values()):
-                    break
-                self._check_safety(controllers)
-                if (rospy.Time.now() - last_print).to_sec() >= 2.0:
-                    self._print_status(phase_name, controllers)
-                    last_print = rospy.Time.now()
-                safety_rate.sleep()
+            _, timed_out = self.wait_until_arrived(
+                list(controllers.values()),
+                timeout_sec=timeout_sec,
+                stage_name=phase_name,
+            )
+            self.stage_report.append({"stage": phase_name, "timed_out": timed_out})
         finally:
             for c in controllers.values():
                 c.stop()
@@ -231,6 +240,41 @@ class Orchestrator(object):
                           c.distance_to_goal, vx, vy, wz)
 
     # ------------------------------------------------------------------
+    #  等待与超时
+    # ------------------------------------------------------------------
+    def wait_until_arrived(self, controllers, timeout_sec, stage_name=""):
+        """
+        等待 controllers 列表里所有实例 arrived=True，或超时。
+        超时时对未到达的车调 c.stop() + WARN，返回 (False, [robot_name,...])。
+        把原 run_phase 等待循环里的 _check_safety 与 2s _print_status 折进来。
+        """
+        start = rospy.Time.now()
+        rate = rospy.Rate(10)
+        ctrl_map = {c.robot_name: c for c in controllers}
+        last_print = rospy.Time.now()
+        while not rospy.is_shutdown():
+            pending = [c for c in controllers if not c.arrived]
+            if not pending:
+                rospy.loginfo("[%s] 全员到达", stage_name)
+                return True, []
+            elapsed = (rospy.Time.now() - start).to_sec()
+            if elapsed > timeout_sec:
+                timed_out_names = []
+                for c in pending:
+                    rospy.logwarn("[%s] %s 等待 %.1fs 仍未到达，强制停车",
+                                  stage_name, c.robot_name, timeout_sec)
+                    c.stop()
+                    timed_out_names.append(c.robot_name)
+                return False, timed_out_names
+            self._check_safety(ctrl_map)
+            if (rospy.Time.now() - last_print).to_sec() >= 2.0:
+                self._print_status(stage_name, ctrl_map)
+                last_print = rospy.Time.now()
+            rate.sleep()
+        # rospy.is_shutdown()：视作"全部超时"
+        return False, [c.robot_name for c in controllers if not c.arrived]
+
+    # ------------------------------------------------------------------
     #  各阶段入口
     # ------------------------------------------------------------------
     def phase_gather(self):
@@ -239,7 +283,8 @@ class Orchestrator(object):
         goals = [(self.base[s]["x"], self.base[s]["y"], self.base[s]["yaw"])
                  for s in slot_names]
         self.base_assignment = self.run_phase(
-            "0-集合", self.active, goals, slot_names, assign=True)
+            "0-集合", self.active, goals, slot_names,
+            assign=True, timeout_sec=self.TIMEOUT_LANE)
 
     def phase_pick_out(self):
         """阶段 1：3 picker Hungarian 分到 3 个 pick_targets。"""
@@ -247,10 +292,17 @@ class Orchestrator(object):
         goals = [(self.pick_targets[t]["x"],
                   self.pick_targets[t]["y"],
                   self.pick_targets[t]["yaw"]) for t in target_names]
-        self.run_phase("1-采摘出发", self.pickers, goals, target_names, assign=True)
+        self.run_phase("1-采摘出发", self.pickers, goals, target_names,
+                       assign=True, timeout_sec=self.TIMEOUT_LANE)
+
+    def update_wait_rounds(self, assigned_picker_ids):
+        for pid in self.wait_rounds:
+            self.wait_rounds[pid] = 0 if pid in assigned_picker_ids \
+                                       else self.wait_rounds[pid] + 1
+        rospy.loginfo("[orchestrator] wait_rounds 更新后: %s", self.wait_rounds)
 
     def phase_transport_out(self):
-        """阶段 2：3 transporter Hungarian 分到 picker 实际停留点。"""
+        """阶段 2：transporter Hungarian 分到 picker 实际停留点（含 wait_rounds 公平惩罚）。"""
         pickup_points = []
         labels = []
         for p in self.pickers:
@@ -259,8 +311,36 @@ class Orchestrator(object):
                 raise RuntimeError("picker {} 没有 pose".format(p))
             pickup_points.append((pose[0] - 0.4, pose[1], 0.0))  # 到达 picker 时朝东
             labels.append("pickup_{}".format(p))
+
+        rospy.loginfo("[orchestrator] wait_rounds 分配前: %s", self.wait_rounds)
+        transporter_xy = []
+        for t in self.transporters:
+            pose = self.pose_cache[t]
+            if pose is None:
+                raise RuntimeError("transporter {} 没有 pose".format(t))
+            transporter_xy.append((pose[0], pose[1]))
+        pickup_xy = [(pt[0], pt[1]) for pt in pickup_points]
+
+        C = build_cost_matrix(transporter_xy, pickup_xy,
+                              task_ids=self.pickers,
+                              wait_rounds=self.wait_rounds,
+                              alpha=self.fairness_alpha)
+        pairs = assign_tasks(C)
+        print_assignment_table(pairs, C,
+                               robot_ids=self.transporters,
+                               task_ids=labels,
+                               title="2-运输出发 分配（含 wait_rounds）")
+        assigned_pids = {self.pickers[t_idx] for _, t_idx in pairs}
+        self.update_wait_rounds(assigned_pids)
+
+        ordered_goals = [None] * len(self.transporters)
+        ordered_labels = [None] * len(self.transporters)
+        for r_idx, t_idx in pairs:
+            ordered_goals[r_idx] = pickup_points[t_idx]
+            ordered_labels[r_idx] = labels[t_idx]
         self.run_phase("2-运输出发", self.transporters,
-                       pickup_points, labels, assign=True)
+                       ordered_goals, ordered_labels,
+                       assign=False, timeout_sec=self.TIMEOUT_LANE)
 
     def phase_transport_back(self):
         """阶段 3：transporter 各回阶段 0 分配的 base slot（yaw=掉头）。"""
@@ -268,10 +348,16 @@ class Orchestrator(object):
         for t in self.transporters:
             base_xyz = self.base_assignment.get(t)
             if base_xyz is None:
-                raise RuntimeError("阶段 0 没给 {} 分配 base slot".format(t))
+                # 跳过阶段 0 时 fallback：picker 占前几个 slot，transporter 从之后开始
+                idx = self.transporters.index(t)
+                slot_keys = sorted(self.base.keys())
+                fallback_key = slot_keys[len(self.pickers) + idx]
+                fb = self.base[fallback_key]
+                base_xyz = (fb["x"], fb["y"], fb["yaw"])
             goals.append((base_xyz[0], base_xyz[1], self.return_yaw))
         self.run_phase("3-运输返回", self.transporters,
-                       goals, ["base"] * len(self.transporters), assign=False)
+                       goals, ["base"] * len(self.transporters),
+                       assign=False, timeout_sec=self.TIMEOUT_RETURN)
 
     def phase_pick_back(self):
         """阶段 4：picker 各回阶段 0 分配的 base slot（yaw=掉头）。"""
@@ -285,7 +371,8 @@ class Orchestrator(object):
                 base_xyz = (fb["x"], fb["y"], fb["yaw"])
             goals.append((base_xyz[0], base_xyz[1], self.return_yaw))
         self.run_phase("4-采摘返回", self.pickers,
-                       goals, ["base"] * len(self.pickers), assign=False)
+                       goals, ["base"] * len(self.pickers),
+                       assign=False, timeout_sec=self.TIMEOUT_RETURN)
 
     # ------------------------------------------------------------------
     #  主循环与收尾
@@ -318,6 +405,13 @@ class Orchestrator(object):
         for name, t in self.phase_times:
             rospy.loginfo("[orchestrator]   阶段 %-12s  %.2fs", name, t)
         rospy.loginfo("[orchestrator] 总耗时 %.2fs", total)
+
+        rospy.loginfo("=" * 50)
+        rospy.loginfo("=== Run Summary ===")
+        for item in self.stage_report:
+            mark = "OK" if not item["timed_out"] else "TIMEOUT {}".format(item["timed_out"])
+            rospy.loginfo("  %s: %s", item["stage"], mark)
+        rospy.loginfo("=" * 50)
 
     def _shutdown_stop_all(self):
         for c in self._active_controllers:

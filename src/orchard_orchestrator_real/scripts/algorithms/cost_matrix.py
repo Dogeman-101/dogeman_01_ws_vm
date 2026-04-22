@@ -19,23 +19,32 @@ def euclidean(p1, p2):
     return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
 
-def build_cost_matrix(robot_positions, task_positions):
+def build_cost_matrix(robot_positions, task_positions,
+                      task_ids=None, wait_rounds=None, alpha=2.5):
     """
     构建 M × N 代价矩阵。
 
     参数：
       robot_positions: [(x, y), ...] 长度 M
       task_positions:  [(x, y), ...] 长度 N
+      task_ids:        可选，[id, ...] 长度 N；列 j 的身份，用于查 wait_rounds
+      wait_rounds:     可选，{id: 等待轮数}；None 或空 dict 时退化为纯欧氏距离
+      alpha:           每轮等待的代价减免幅度（默认 2.5）
 
     返回：
-      C: np.ndarray，shape (M, N)，C[i, j] = 机器人 i 到任务 j 的欧氏距离
+      C: np.ndarray，shape (M, N)
+         C[i, j] = euclidean(robot_i, task_j) - alpha * wait_rounds.get(task_ids[j], 0)
     """
     m = len(robot_positions)
     n = len(task_positions)
     C = np.zeros((m, n), dtype=float)
     for i, rp in enumerate(robot_positions):
         for j, tp in enumerate(task_positions):
-            C[i, j] = euclidean(rp, tp)
+            d = euclidean(rp, tp)
+            penalty = 0.0
+            if wait_rounds and task_ids is not None:
+                penalty = alpha * wait_rounds.get(task_ids[j], 0)
+            C[i, j] = d - penalty
     return C
 
 
