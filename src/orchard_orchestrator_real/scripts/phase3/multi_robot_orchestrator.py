@@ -1,31 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-multi_robot_orchestrator.py — 6 车采摘-运输编排（动捕直控版）
+multi_robot_orchestrator.py — 5 车实机采摘-运输编排（动捕直控版）
 
-4 阶段串行：
-  阶段 0  集合      : 所有车 Hungarian → base slot
-  阶段 1  采摘出发  : picker   Hungarian → pick_targets
-  阶段 2  运输出发  : transporter Hungarian → picker 停留点
-  阶段 3  运输返回  : transporter → 各自 base slot（yaw=掉头）
-  阶段 4  采摘返回  : picker      → 各自 base slot（yaw=掉头）
+6 阶段串行：
+  S0 gather                : picker→picker_base, transporter→transporter_initial_position
+  S1 pickers_to_midpoint   : picker 并行 → picker_midpoint
+  S2 transport_midpoint    : Hungarian 分配 2 transporter 服务 3 picker 中的 2 个
+                             每个 transporter 走 4 waypoint（east_stop→stop_point→卸货→east_stop）
+  S3 pickers_to_endpoint   : picker 并行 → picker_endpoint（transporter 空闲停在 east_stop）
+  S4 transport_endpoint    : 复用 S2 配对，在 picker_endpoint 再服务一次（不跑 Hungarian）
+  S5 return_to_base        : picker → picker_base（transporter 停在当前 east_stop）
 
-num_robots=3 时跳过 2/3（只跑 picker 流程）。
-
-控制层：每阶段为活跃车新建 SimpleController；阶段结束 stop() 并弃用。
+控制层：每 waypoint 为活跃车新建 SimpleController；waypoint 结束 stop() 并弃用。
 订阅层：自建 /mocap_node/Robot_N/pose 订阅做 Hungarian 的 pose 输入，
         与 SimpleController 对同一 topic 的订阅互不干扰。
-
-安全距离：warn-only。SimpleController 没有 pause 接口，强行 stop() 会被
-下一 tick 覆盖；参见计划文件的"与 spec 偏离"段。
 """
 
 import math
 import os
 import sys
-from itertools import combinations
+import threading
 
-# sys.path shim：让脚本在源码直跑和 install 后都能 import controller / algorithms
 try:
     import rospkg
     _pkg_root = rospkg.RosPack().get_path("orchard_orchestrator_real")
@@ -51,60 +47,91 @@ def quat_to_yaw(q):
                       1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
+def _robot_id_to_int(robot_id):
+    """robot7 → 7"""
+    return int(robot_id.replace("robot", ""))
+
+
 class Orchestrator(object):
-    # 阶段超时常量（秒）——统一在这里调
-    TIMEOUT_LANE    = 30.0   # S0/S1/S2：集合 / 走过道去采摘点 / 去服务 picker
-    TIMEOUT_RETURN  = 40.0   # S3/S4：transporter / picker 返 base（路径较长）
-    UNLOAD_DURATION = 5.0    # 卸货停留时长（预留，当前未调用）
+    # 阶段超时常量（秒）
+    TIMEOUT_LANE    = 30.0   # S0/S1/S2/S3/S4（过道段 + 运输段）
+    TIMEOUT_RETURN  = 40.0   # S5：返 base
+    UNLOAD_DURATION = 5.0    # 卸货 fallback 时长（若 yaml 未给）
 
     def __init__(self):
-        self.num_robots = int(rospy.get_param("~num_robots", 6))
-        self.skip_gather = bool(rospy.get_param("~skip_gather", False))
         self.differential_mode = bool(rospy.get_param("~differential_mode", True))
+        self.skip_gather = bool(rospy.get_param("~skip_gather", False))
 
-        # zones.yaml 在 launch 的 <node> 内用 <rosparam command="load"> 加载，
-        # 顶层 key 落在节点私有命名空间，必须用 "~" 前缀读。
-        self.base = rospy.get_param("~base", None)
-        self.pick_targets = rospy.get_param("~pick_targets", None)
-        self.roles = rospy.get_param("~roles", None)
-        self.return_yaw = float(rospy.get_param("~return_yaw", 3.14159))
-        self.safety_distance = float(rospy.get_param("~safety_distance", 0.5))
+        # --- zones.yaml 新 schema ---
+        self.field = rospy.get_param("~field", None)
+        self.picker_ids = list(rospy.get_param("~picker_ids", []))
+        self.transporter_ids = list(rospy.get_param("~transporter_ids", []))
+        self.picker_base = rospy.get_param("~picker_base", None)
+        self.picker_midpoint = rospy.get_param("~picker_midpoint", None)
+        self.picker_endpoint = rospy.get_param("~picker_endpoint", None)
+        self.transporter_initial = rospy.get_param("~transporter_initial_position", None)
+        self.east_stops = rospy.get_param("~east_stops", None)
+        self.picker_to_lane = rospy.get_param("~picker_to_lane", None)
+        self.control = rospy.get_param("~control", None)
 
-        if not self.base or not self.pick_targets or not self.roles:
-            raise RuntimeError("缺少 zones.yaml 参数（base / pick_targets / roles）；"
-                               "请确认 launch 里 <rosparam command=\"load\" file=...>")
+        required = {
+            "field": self.field,
+            "picker_ids": self.picker_ids,
+            "transporter_ids": self.transporter_ids,
+            "picker_base": self.picker_base,
+            "picker_midpoint": self.picker_midpoint,
+            "picker_endpoint": self.picker_endpoint,
+            "transporter_initial_position": self.transporter_initial,
+            "east_stops": self.east_stops,
+            "picker_to_lane": self.picker_to_lane,
+            "control": self.control,
+        }
+        missing = [k for k, v in required.items() if not v]
+        if missing:
+            raise RuntimeError("zones.yaml 缺少必需字段: {}".format(missing))
 
-        self.pickers = list(self.roles["picker"])
-        self.transporters = list(self.roles["transporter"])
-
+        self.pickers = ["robot{}".format(i) for i in self.picker_ids]
+        self.transporters = ["robot{}".format(i) for i in self.transporter_ids]
         self.active = self.pickers + self.transporters
-        self.skip_transport = (len(self.transporters) == 0)
 
-        self.wait_rounds = {pid: 0 for pid in self.pickers}
+        self.safety_distance = float(self.control.get("safety_distance", 0.3))
+        self.service_unload_sec = float(self.control.get("service_unload_sec",
+                                                         self.UNLOAD_DURATION))
+
+        # SimpleController 控制参数（从 launch arg 透传）
+        self.ctrl_kwargs = dict(
+            kp_linear=float(rospy.get_param("~Kp_linear", 0.5)),
+            kp_angular=float(rospy.get_param("~Kp_angular", 1.0)),
+            max_linear=float(rospy.get_param("~max_linear", 0.25)),
+            max_angular=float(rospy.get_param("~max_angular", 0.8)),
+            dist_tolerance=float(rospy.get_param("~dist_tolerance", 0.2)),
+            yaw_tolerance=float(rospy.get_param("~yaw_tolerance", 0.3)),
+            differential_mode=self.differential_mode,
+        )
+
+        # S2 Hungarian 配对结果（S4 直接复用，不重算）
+        self.s2_pairs = []            # list[(transporter_id, picker_id)]
+        self.served_this_round = set()
+
+        # wait_rounds 相关字段保留但不再被调用（单轮流程下无意义）
+        self.wait_rounds = {p: 0 for p in self.pickers}
         self.fairness_alpha = 2.5
 
-        rospy.loginfo("[orchestrator] num_robots=%d skip_gather=%s differential_mode=%s",
-                      self.num_robots, self.skip_gather, self.differential_mode)
-        rospy.loginfo("[orchestrator] 活跃机器人: %s", self.active)
+        rospy.loginfo("[orchestrator] pickers=%s transporters=%s differential_mode=%s",
+                      self.pickers, self.transporters, self.differential_mode)
 
         # 独立 pose 缓存（与 SimpleController 的订阅并行）
         self.pose_cache = {r: None for r in self.active}
         self._subs = []
         for rid in self.active:
-            idx = int(rid.replace("robot", ""))
-            topic = "/mocap_node/Robot_{}/pose".format(idx)
+            topic = "/mocap_node/Robot_{}/pose".format(_robot_id_to_int(rid))
             sub = rospy.Subscriber(topic, PoseStamped,
                                    self._make_pose_cb(rid), queue_size=1)
             self._subs.append(sub)
             rospy.loginfo("[orchestrator] 订阅 %s ← %s", rid, topic)
 
-        # 阶段 0 的分配结果（用于阶段 3/4 的返程闭环）
-        self.base_assignment = {}
-        # 阶段耗时记录
         self.phase_times = []
-        # 阶段到达 / 超时报告：[{"stage": name, "timed_out": [robot_name,...]}]
         self.stage_report = []
-        # 活跃 controllers（供 shutdown hook 用）
         self._active_controllers = []
         rospy.on_shutdown(self._shutdown_stop_all)
 
@@ -116,7 +143,7 @@ class Orchestrator(object):
             x = msg.pose.position.x
             y = msg.pose.position.y
             if abs(x) > 5000.0 or abs(y) > 5000.0:
-                return  # 动捕丢失异常值
+                return
             yaw = quat_to_yaw(msg.pose.orientation)
             self.pose_cache[rid] = (x, y, yaw)
         return cb
@@ -134,21 +161,80 @@ class Orchestrator(object):
             rate.sleep()
 
     # ------------------------------------------------------------------
+    #  日志辅助
+    # ------------------------------------------------------------------
+    def _stage_banner(self, name):
+        rospy.loginfo("=" * 60)
+        rospy.loginfo(">>> STAGE %s START", name)
+        rospy.loginfo("=" * 60)
+
+    def _stage_end(self, name, elapsed, timed_out):
+        if timed_out:
+            rospy.logerr("[!!!] STAGE %s TIMEOUT: robots %s", name, timed_out)
+            result = "TIMEOUT {}".format(timed_out)
+        else:
+            result = "OK"
+        rospy.loginfo("<<< STAGE %s END  (result: %s, elapsed=%.2fs)",
+                      name, result, elapsed)
+
+    def _log_goal_dispatch(self, phase_name, robot_id, gx, gy):
+        pose = self.pose_cache.get(robot_id)
+        if pose is None:
+            rospy.loginfo("[%s] Robot %s goal=(%.2f,%.2f) from=None",
+                          phase_name, robot_id, gx, gy)
+            return
+        cx, cy = pose[0], pose[1]
+        d = math.hypot(gx - cx, gy - cy)
+        rospy.loginfo("[%s] Robot %s goal=(%.2f,%.2f) from=(%.2f,%.2f) dist=%.2fm",
+                      phase_name, robot_id, gx, gy, cx, cy, d)
+
+    def _log_s2_hungarian(self, phase_name, wait_before, C, pairs,
+                          wait_after, unserved):
+        """按 prompt C 节格式打印 Hungarian 输入/输出。"""
+        rospy.loginfo("[%s] Hungarian input:", phase_name)
+        rospy.loginfo("  wait_rounds: %s",
+                      {_robot_id_to_int(k): v for k, v in wait_before.items()})
+        header = "           " + "".join(
+            ["P{:<8d}".format(pid) for pid in self.picker_ids])
+        rospy.loginfo("  cost_matrix (rows=transporters, cols=pickers):")
+        rospy.loginfo("  %s", header)
+        for i, tid in enumerate(self.transporter_ids):
+            row_vals = "".join(["{:<9.2f}".format(C[i][j])
+                                for j in range(len(self.picker_ids))])
+            rospy.loginfo("    T{}   {}".format(tid, row_vals))
+        assign_numeric = [(self.transporter_ids[ti], self.picker_ids[pi])
+                          for ti, pi in pairs]
+        rospy.loginfo("  → assignment: %s", assign_numeric)
+        rospy.loginfo("  → wait_rounds after: %s",
+                      {_robot_id_to_int(k): v for k, v in wait_after.items()})
+        unserved_ids = [_robot_id_to_int(p) for p in unserved]
+        rospy.loginfo("  → not served this round: %s", unserved_ids)
+
+    def _print_run_summary(self, total):
+        rospy.loginfo("=" * 60)
+        rospy.loginfo("             RUN SUMMARY")
+        rospy.loginfo("=" * 60)
+        for item in self.stage_report:
+            mark = "OK" if not item["timed_out"] else \
+                   "TIMEOUT {}".format(item["timed_out"])
+            rospy.loginfo("  %-30s %s", item["stage"], mark)
+        rospy.loginfo("-" * 60)
+        for name, t in self.phase_times:
+            rospy.loginfo("  %-30s %.2fs", name, t)
+        rospy.loginfo("  %-30s %.2fs", "TOTAL", total)
+        rospy.loginfo("=" * 60)
+
+    # ------------------------------------------------------------------
     #  阶段公共逻辑
     # ------------------------------------------------------------------
     def run_phase(self, phase_name, robot_ids, goals_list, task_labels,
                   assign=True, timeout_sec=None):
         """
-        robot_ids:   list[str]，本阶段参与的机器人
-        goals_list:  list[(x, y, yaw)]，候选目标
-        task_labels: list[str]，目标 id（打印用）
-        assign=True: Hungarian 分配；False: robot[i] → goals_list[i] 一一对应
+        用于 S0/S1/S3/S5 这类并行单 waypoint 阶段。
         返回 goal_by_robot: {rid: (x, y, yaw)}
         """
-        rospy.loginfo("\n[orchestrator] ===== 阶段 %s 开始 =====", phase_name)
         t0 = rospy.Time.now()
 
-        # 取当前 pose
         positions = []
         for rid in robot_ids:
             p = self.pose_cache[rid]
@@ -157,7 +243,6 @@ class Orchestrator(object):
             positions.append((p[0], p[1]))
         goal_xy = [(g[0], g[1]) for g in goals_list]
 
-        # 分配
         if assign:
             C = build_cost_matrix(positions, goal_xy)
             pairs = assign_tasks(C)
@@ -170,27 +255,23 @@ class Orchestrator(object):
             if len(robot_ids) != len(goals_list):
                 raise RuntimeError("assign=False 需要 robot_ids 与 goals_list 等长")
             goal_by_robot = dict(zip(robot_ids, goals_list))
-            rospy.loginfo("[orchestrator] %s 直接对应（非 Hungarian）:", phase_name)
-            for rid in robot_ids:
-                g = goal_by_robot[rid]
-                rospy.loginfo("[orchestrator]   %s → (%.3f, %.3f, yaw=%.3f)",
-                              rid, g[0], g[1], g[2])
 
-        # 实例化 controllers
+        for rid in robot_ids:
+            g = goal_by_robot[rid]
+            self._log_goal_dispatch(phase_name, rid, g[0], g[1])
+
         controllers = {}
         for rid in robot_ids:
             gx, gy, gyaw = goal_by_robot[rid]
-            idx = int(rid.replace("robot", ""))
             controllers[rid] = SimpleController(
-                mocap_topic="/mocap_node/Robot_{}/pose".format(idx),
+                mocap_topic="/mocap_node/Robot_{}/pose".format(_robot_id_to_int(rid)),
                 cmd_vel_topic="/{}/cmd_vel".format(rid),
                 goal_x=gx, goal_y=gy, goal_yaw=gyaw,
                 robot_name=rid,
-                differential_mode=self.differential_mode,
+                **self.ctrl_kwargs,
             )
         self._active_controllers = list(controllers.values())
 
-        # 等待 + 超时保护（_check_safety / 2s 状态打印折进 wait_until_arrived）
         if timeout_sec is None:
             timeout_sec = self.TIMEOUT_LANE
         try:
@@ -207,12 +288,12 @@ class Orchestrator(object):
 
         elapsed = (rospy.Time.now() - t0).to_sec()
         self.phase_times.append((phase_name, elapsed))
-        rospy.loginfo("[orchestrator] ===== 阶段 %s 完成，耗时 %.2fs =====",
-                      phase_name, elapsed)
+        self._stage_end(phase_name, elapsed, timed_out)
         return goal_by_robot
 
     def _check_safety(self, controllers):
-        """同组两两距离 < safety_distance 时 warn-only（见计划 'safety_distance' 段）。"""
+        """同组两两距离 < safety_distance 时 warn-only。"""
+        from itertools import combinations
         items = list(controllers.items())
         for (r1, c1), (r2, c2) in combinations(items, 2):
             if c1.current_pose is None or c2.current_pose is None:
@@ -246,7 +327,7 @@ class Orchestrator(object):
         """
         等待 controllers 列表里所有实例 arrived=True，或超时。
         超时时对未到达的车调 c.stop() + WARN，返回 (False, [robot_name,...])。
-        把原 run_phase 等待循环里的 _check_safety 与 2s _print_status 折进来。
+        安全检查与 2s 状态打印折进循环。
         """
         start = rospy.Time.now()
         rate = rospy.Rate(10)
@@ -271,114 +352,206 @@ class Orchestrator(object):
                 self._print_status(stage_name, ctrl_map)
                 last_print = rospy.Time.now()
             rate.sleep()
-        # rospy.is_shutdown()：视作"全部超时"
         return False, [c.robot_name for c in controllers if not c.arrived]
 
     # ------------------------------------------------------------------
-    #  各阶段入口
+    #  Transporter 服务（S2/S4）辅助
     # ------------------------------------------------------------------
-    def phase_gather(self):
-        """阶段 0：所有活跃车 Hungarian 分到 base slots。"""
-        slot_names = sorted(self.base.keys())[:len(self.active)]
-        goals = [(self.base[s]["x"], self.base[s]["y"], self.base[s]["yaw"])
-                 for s in slot_names]
-        self.base_assignment = self.run_phase(
-            "0-集合", self.active, goals, slot_names,
-            assign=True, timeout_sec=self.TIMEOUT_LANE)
+    def _execute_waypoint(self, robot_id, goal, phase_name, timeout_sec):
+        """单台车单 waypoint：new 一个 SimpleController 等到达或超时。
+        返回 (ok: bool, timed_out: list[robot_name])。
+        """
+        gx, gy, gyaw = goal
+        self._log_goal_dispatch(phase_name, robot_id, gx, gy)
+        ctrl = SimpleController(
+            mocap_topic="/mocap_node/Robot_{}/pose".format(_robot_id_to_int(robot_id)),
+            cmd_vel_topic="/{}/cmd_vel".format(robot_id),
+            goal_x=gx, goal_y=gy, goal_yaw=gyaw,
+            robot_name=robot_id,
+            **self.ctrl_kwargs,
+        )
+        try:
+            ok, timed_out = self.wait_until_arrived([ctrl], timeout_sec, phase_name)
+        finally:
+            ctrl.stop()
+        return ok, timed_out
 
-    def phase_pick_out(self):
-        """阶段 1：3 picker Hungarian 分到 3 个 pick_targets。"""
-        target_names = sorted(self.pick_targets.keys())
-        goals = [(self.pick_targets[t]["x"],
-                  self.pick_targets[t]["y"],
-                  self.pick_targets[t]["yaw"]) for t in target_names]
-        self.run_phase("1-采摘出发", self.pickers, goals, target_names,
-                       assign=True, timeout_sec=self.TIMEOUT_LANE)
+    def _serve_picker(self, transporter_id, picker_id, picker_pos,
+                      phase_name, timeout_sec, results):
+        """4-waypoint 服务序列，在独立线程跑。
+           1. east_stops[lane]  2. stop_point  3. stop+sleep  4. east_stops[lane]
+        """
+        lane = self.picker_to_lane[picker_id]
+        east_xy = tuple(self.east_stops[lane])
+        stop_pt = (picker_pos[0] + self.safety_distance, picker_pos[1])
+        service_log = []
 
+        ok, to = self._execute_waypoint(
+            transporter_id, (east_xy[0], east_xy[1], 0.0),
+            "{}:WP1_east".format(phase_name), timeout_sec)
+        service_log.append(("WP1", ok, to))
+
+        ok, to = self._execute_waypoint(
+            transporter_id, (stop_pt[0], stop_pt[1], 0.0),
+            "{}:WP2_stop".format(phase_name), timeout_sec)
+        service_log.append(("WP2", ok, to))
+
+        rospy.loginfo("[%s] Robot %s unloading at (%.2f,%.2f) for %.1fs",
+                      phase_name, transporter_id, stop_pt[0], stop_pt[1],
+                      self.service_unload_sec)
+        rospy.sleep(self.service_unload_sec)
+
+        ok, to = self._execute_waypoint(
+            transporter_id, (east_xy[0], east_xy[1], 0.0),
+            "{}:WP4_return".format(phase_name), timeout_sec)
+        service_log.append(("WP4", ok, to))
+
+        results[transporter_id] = service_log
+
+    def _run_transporter_services(self, pairs, picker_pos_by_id,
+                                  phase_name, timeout_sec):
+        """S2/S4 共用：每个 (t, p) 开一个线程跑 _serve_picker，主线程 join。"""
+        t_start = rospy.Time.now()
+        results = {}
+        threads = []
+        for t_id, p_id in pairs:
+            picker_pos = picker_pos_by_id[p_id]
+            th = threading.Thread(
+                target=self._serve_picker,
+                args=(t_id, p_id, picker_pos, phase_name, timeout_sec, results),
+                name="serve-{}-{}".format(t_id, p_id),
+            )
+            threads.append(th)
+            th.start()
+        for th in threads:
+            th.join()
+
+        phase_timed_out = []
+        for t_id, log in results.items():
+            for wp, ok, to_list in log:
+                if not ok:
+                    if t_id not in phase_timed_out:
+                        phase_timed_out.append(t_id)
+                    rospy.logerr("[!!!] %s %s waypoint %s TIMEOUT",
+                                 phase_name, t_id, wp)
+        self.stage_report.append({"stage": phase_name,
+                                  "timed_out": phase_timed_out})
+        elapsed = (rospy.Time.now() - t_start).to_sec()
+        self.phase_times.append((phase_name, elapsed))
+        self._stage_end(phase_name, elapsed, phase_timed_out)
+
+    # ------------------------------------------------------------------
+    #  wait_rounds 更新（保留不调用，留给未来多轮流程）
+    # ------------------------------------------------------------------
     def update_wait_rounds(self, assigned_picker_ids):
         for pid in self.wait_rounds:
             self.wait_rounds[pid] = 0 if pid in assigned_picker_ids \
                                        else self.wait_rounds[pid] + 1
         rospy.loginfo("[orchestrator] wait_rounds 更新后: %s", self.wait_rounds)
 
-    def phase_transport_out(self):
-        """阶段 2：transporter Hungarian 分到 picker 实际停留点（含 wait_rounds 公平惩罚）。"""
-        pickup_points = []
+    # ------------------------------------------------------------------
+    #  各阶段入口
+    # ------------------------------------------------------------------
+    def phase_gather(self):
+        """S0: picker→picker_base, transporter→transporter_initial_position。"""
+        goals = []
         labels = []
+        robot_ids = list(self.active)
         for p in self.pickers:
-            pose = self.pose_cache[p]
-            if pose is None:
-                raise RuntimeError("picker {} 没有 pose".format(p))
-            pickup_points.append((pose[0] - 0.4, pose[1], 0.0))  # 到达 picker 时朝东
-            labels.append("pickup_{}".format(p))
+            xy = self.picker_base[p]
+            goals.append((xy[0], xy[1], 0.0))
+            labels.append("base_" + p)
+        for t in self.transporters:
+            xy = self.transporter_initial[t]
+            goals.append((xy[0], xy[1], 0.0))
+            labels.append("init_" + t)
+        self.run_phase("S0-gather", robot_ids, goals, labels,
+                       assign=False, timeout_sec=self.TIMEOUT_LANE)
 
-        rospy.loginfo("[orchestrator] wait_rounds 分配前: %s", self.wait_rounds)
+    def phase_pickers_to_midpoint(self):
+        """S1: 3 picker 并行 → picker_midpoint。"""
+        goals = [(self.picker_midpoint[p][0], self.picker_midpoint[p][1], 0.0)
+                 for p in self.pickers]
+        labels = ["mid_" + p for p in self.pickers]
+        self.run_phase("S1-pickers_to_midpoint", self.pickers, goals, labels,
+                       assign=False, timeout_sec=self.TIMEOUT_LANE)
+
+    def phase_transport_midpoint(self):
+        """S2: Hungarian 分配 2 transporter 服务 3 picker 中的 2 个，4-waypoint 服务。"""
+        phase_name = "S2-transport_midpoint"
+
         transporter_xy = []
         for t in self.transporters:
-            pose = self.pose_cache[t]
-            if pose is None:
+            p = self.pose_cache[t]
+            if p is None:
                 raise RuntimeError("transporter {} 没有 pose".format(t))
-            transporter_xy.append((pose[0], pose[1]))
-        pickup_xy = [(pt[0], pt[1]) for pt in pickup_points]
+            transporter_xy.append((p[0], p[1]))
+        picker_mid_xy = [(self.picker_midpoint[p][0], self.picker_midpoint[p][1])
+                         for p in self.pickers]
 
-        C = build_cost_matrix(transporter_xy, pickup_xy,
-                              task_ids=self.pickers,
-                              wait_rounds=self.wait_rounds,
-                              alpha=self.fairness_alpha)
+        wait_before = dict(self.wait_rounds)
+        C = build_cost_matrix(transporter_xy, picker_mid_xy)  # 不传 wait_rounds/alpha
         pairs = assign_tasks(C)
         print_assignment_table(pairs, C,
                                robot_ids=self.transporters,
-                               task_ids=labels,
-                               title="2-运输出发 分配（含 wait_rounds）")
-        assigned_pids = {self.pickers[t_idx] for _, t_idx in pairs}
-        self.update_wait_rounds(assigned_pids)
+                               task_ids=self.pickers,
+                               title="{} 分配".format(phase_name))
 
-        ordered_goals = [None] * len(self.transporters)
-        ordered_labels = [None] * len(self.transporters)
-        for r_idx, t_idx in pairs:
-            ordered_goals[r_idx] = pickup_points[t_idx]
-            ordered_labels[r_idx] = labels[t_idx]
-        self.run_phase("2-运输出发", self.transporters,
-                       ordered_goals, ordered_labels,
+        self.s2_pairs = [(self.transporters[ti], self.pickers[pi])
+                         for ti, pi in pairs]
+        self.served_this_round = {p for (_, p) in self.s2_pairs}
+        unserved = [p for p in self.pickers if p not in self.served_this_round]
+
+        # prompt C 节格式（wait_rounds 未更新，after==before）
+        wait_after = dict(self.wait_rounds)
+        self._log_s2_hungarian(phase_name, wait_before, C, pairs,
+                               wait_after, unserved)
+
+        self._run_transporter_services(
+            pairs=self.s2_pairs,
+            picker_pos_by_id={p: tuple(self.picker_midpoint[p]) for p in self.pickers},
+            phase_name=phase_name,
+            timeout_sec=self.TIMEOUT_LANE,
+        )
+
+    def phase_pickers_to_endpoint(self):
+        """S3: 3 picker 并行 → picker_endpoint。transporter 停在 east_stop 不动。"""
+        goals = [(self.picker_endpoint[p][0], self.picker_endpoint[p][1], 0.0)
+                 for p in self.pickers]
+        labels = ["end_" + p for p in self.pickers]
+        self.run_phase("S3-pickers_to_endpoint", self.pickers, goals, labels,
                        assign=False, timeout_sec=self.TIMEOUT_LANE)
 
-    def phase_transport_back(self):
-        """阶段 3：transporter 各回阶段 0 分配的 base slot（yaw=掉头）。"""
-        goals = []
-        for t in self.transporters:
-            base_xyz = self.base_assignment.get(t)
-            if base_xyz is None:
-                # 跳过阶段 0 时 fallback：picker 占前几个 slot，transporter 从之后开始
-                idx = self.transporters.index(t)
-                slot_keys = sorted(self.base.keys())
-                fallback_key = slot_keys[len(self.pickers) + idx]
-                fb = self.base[fallback_key]
-                base_xyz = (fb["x"], fb["y"], fb["yaw"])
-            goals.append((base_xyz[0], base_xyz[1], self.return_yaw))
-        self.run_phase("3-运输返回", self.transporters,
-                       goals, ["base"] * len(self.transporters),
-                       assign=False, timeout_sec=self.TIMEOUT_RETURN)
-
-    def phase_pick_back(self):
-        """阶段 4：picker 各回阶段 0 分配的 base slot（yaw=掉头）。"""
-        goals = []
+    def phase_transport_endpoint(self):
+        """S4: 复用 S2 配对，在 picker_endpoint 再服务一次（不跑 Hungarian）。"""
+        phase_name = "S4-transport_endpoint"
         for p in self.pickers:
-            base_xyz = self.base_assignment.get(p)
-            if base_xyz is None:
-                # 如果跳过了阶段 0，fallback 到前三个 slot
-                fallback = sorted(self.base.keys())[self.pickers.index(p)]
-                fb = self.base[fallback]
-                base_xyz = (fb["x"], fb["y"], fb["yaw"])
-            goals.append((base_xyz[0], base_xyz[1], self.return_yaw))
-        self.run_phase("4-采摘返回", self.pickers,
-                       goals, ["base"] * len(self.pickers),
+            if p not in self.served_this_round:
+                ep = self.picker_endpoint[p]
+                rospy.loginfo("[%s] Picker %s not served this round, "
+                              "waiting at (%.2f, %.2f)",
+                              phase_name, p, ep[0], ep[1])
+        self._run_transporter_services(
+            pairs=self.s2_pairs,
+            picker_pos_by_id={p: tuple(self.picker_endpoint[p])
+                              for p in self.pickers},
+            phase_name=phase_name,
+            timeout_sec=self.TIMEOUT_LANE,
+        )
+
+    def phase_return_to_base(self):
+        """S5: picker → picker_base。transporter 停在当前 east_stop。"""
+        goals = [(self.picker_base[p][0], self.picker_base[p][1], 0.0)
+                 for p in self.pickers]
+        labels = ["base_" + p for p in self.pickers]
+        self.run_phase("S5-return_to_base", self.pickers, goals, labels,
                        assign=False, timeout_sec=self.TIMEOUT_RETURN)
 
     # ------------------------------------------------------------------
     #  主循环与收尾
     # ------------------------------------------------------------------
     def run(self):
-        rospy.loginfo("[orchestrator] 等首帧 pose（3s）...")
+        rospy.loginfo("[orchestrator] 等首帧 pose (3s)...")
         rospy.sleep(3.0)
         self._require_all_poses()
         rospy.loginfo("[orchestrator] 所有活跃机器人 pose 就位，开始编排")
@@ -386,32 +559,17 @@ class Orchestrator(object):
         t_all = rospy.Time.now()
 
         if self.skip_gather:
-            rospy.loginfo("[orchestrator] 跳过阶段 0（skip_gather=true）")
+            rospy.loginfo("[orchestrator] 跳过 S0-gather（skip_gather=true）")
         else:
-            self.phase_gather()
-
-        self.phase_pick_out()
-
-        if not self.skip_transport:
-            self.phase_transport_out()
-            self.phase_transport_back()
-        else:
-            rospy.loginfo("[orchestrator] 跳过阶段 2/3（roles 无 transporter）")
-
-        self.phase_pick_back()
+            self._stage_banner("S0-gather");          self.phase_gather()
+        self._stage_banner("S1-pickers_to_midpoint"); self.phase_pickers_to_midpoint()
+        self._stage_banner("S2-transport_midpoint");  self.phase_transport_midpoint()
+        self._stage_banner("S3-pickers_to_endpoint"); self.phase_pickers_to_endpoint()
+        self._stage_banner("S4-transport_endpoint");  self.phase_transport_endpoint()
+        self._stage_banner("S5-return_to_base");      self.phase_return_to_base()
 
         total = (rospy.Time.now() - t_all).to_sec()
-        rospy.loginfo("\n[orchestrator] ==================== 汇总 ====================")
-        for name, t in self.phase_times:
-            rospy.loginfo("[orchestrator]   阶段 %-12s  %.2fs", name, t)
-        rospy.loginfo("[orchestrator] 总耗时 %.2fs", total)
-
-        rospy.loginfo("=" * 50)
-        rospy.loginfo("=== Run Summary ===")
-        for item in self.stage_report:
-            mark = "OK" if not item["timed_out"] else "TIMEOUT {}".format(item["timed_out"])
-            rospy.loginfo("  %s: %s", item["stage"], mark)
-        rospy.loginfo("=" * 50)
+        self._print_run_summary(total)
 
     def _shutdown_stop_all(self):
         for c in self._active_controllers:

@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--
+multi_robot_real.launch — 5 车实机编排（3 picker + 2 transporter）
+
+前置（都不由本 launch 启动）：
+  VM  : vm_master.launch（mocap nokov driver + 地图 + rviz）
+  W4A : 每台车 SSH 起自己的 cmd_vel 驱动节点（订 /robotN/cmd_vel）
+
+本 launch 只起 1 个 orchestrator 节点；SimpleController 由 orchestrator 内部
+按阶段/waypoint 实例化，不作为独立节点。
+
+用法：
+  roslaunch orchard_orchestrator_real multi_robot_real.launch
+  roslaunch orchard_orchestrator_real multi_robot_real.launch differential_mode:=false
+-->
+<launch>
+  <!-- SimpleController 控制参数（orchestrator 读 rosparam 后透传给构造器） -->
+  <arg name="Kp_linear"         default="0.5"/>
+  <arg name="Kp_angular"        default="1.0"/>
+  <arg name="max_linear"        default="0.25"/>
+  <arg name="max_angular"       default="0.8"/>
+  <arg name="dist_tolerance"    default="0.2"/>
+  <arg name="yaw_tolerance"     default="0.3"/>
+  <arg name="differential_mode" default="false"/>
+  <arg name="skip_gather"       default="True"/>
+
+  <node pkg="orchard_orchestrator_real" type="multi_robot_orchestrator.py"
+        name="multi_robot_orchestrator" output="screen">
+    <param name="Kp_linear"         value="$(arg Kp_linear)"/>
+    <param name="Kp_angular"        value="$(arg Kp_angular)"/>
+    <param name="max_linear"        value="$(arg max_linear)"/>
+    <param name="max_angular"       value="$(arg max_angular)"/>
+    <param name="dist_tolerance"    value="$(arg dist_tolerance)"/>
+    <param name="yaw_tolerance"     value="$(arg yaw_tolerance)"/>
+    <param name="differential_mode" value="$(arg differential_mode)"/>
+    <param name="skip_gather"       value="$(arg skip_gather)"/>
+    <rosparam command="load" file="$(find orchard_orchestrator_real)/config/zones.yaml"/>
+  </node>
+</launch>
